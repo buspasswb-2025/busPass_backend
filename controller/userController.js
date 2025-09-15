@@ -40,7 +40,7 @@ const signup = async (req, res, next) => {
         await user.save();
 
         const message = generateOTPMessage(otp);
-        // await sendEmail(email, message.subject, message.html);
+        await sendEmail(email, message.subject, message.html);
 
         res.status(201).json({
             success: true,
@@ -173,10 +173,10 @@ const verifyOTP = async (req, res, next) => {
         user.refreshToken = refreshToken;
         await user.save();
 
-        // res.cookie('token', token, {
-        //     maxAge: 7 * 24 * 60 * 60 * 1000,
-        //     httpOnly: true
-        // })
+        res.cookie('token', token, {
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+            httpOnly: true
+        })
 
         res.status(201).json({
             success: true,
@@ -213,7 +213,7 @@ const resendOTP = async (req, res, next) => {
         await user.save();
 
         const message = generateOTPMessage(user.name || undefined, otp);
-        // await sendEmail(email, message.subject, message.html);
+        await sendEmail(email, message.subject, message.html);
 
         res.status(201).json({
             success: true,

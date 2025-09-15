@@ -28,6 +28,7 @@ const userSchema = new Schema({
         type: String,
         unique: true,
         trim: true,
+        sparse: true,
         validate: {
             validator: function (v) {
                 return /^\d{10}$/.test(v);

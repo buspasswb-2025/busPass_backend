@@ -39,7 +39,7 @@ const signup = async (req, res, next) => {
 
         await user.save();
 
-        const message = generateOTPMessage(otp);
+        const message = await generateOTPMessage(user.firstName,otp);
         await sendEmail(email, message.subject, message.html);
 
         res.status(201).json({
@@ -173,11 +173,6 @@ const verifyOTP = async (req, res, next) => {
         user.refreshToken = refreshToken;
         await user.save();
 
-        res.cookie('token', token, {
-            maxAge: 7 * 24 * 60 * 60 * 1000,
-            httpOnly: true
-        })
-
         res.status(201).json({
             success: true,
             message: "login successfull",
@@ -290,15 +285,17 @@ const getProfile = async (req, res, next) => {
     try {
         const { id } = req.user;
 
-        const driver = await User.findById(id);
+        const user = await User.findById(id);
 
-        if (!driver) {
+        if (!user) {
             return next(new AppError('User does not exist!', 400));
         }
 
+        user.refreshToken = undefined;
+
         res.status(201).json({
             success: true,
-            data: driver
+            data: user
         })
     } catch (e) {
         return next(new AppError(e.message, 400));

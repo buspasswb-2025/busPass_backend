@@ -11,22 +11,46 @@ const busSchema = new Schema({
     },
     up: {
         startTime: {
-            type: Number,
-            required: [true, "Up start time is required"],
+            time: {
+                type: String,
+                required: [true, 'up start time is required']
+            },
+            timeInMin: {
+                type: Number,
+                required: [true, 'up start time in minutes is required']
+            }
         },
         endTime: {
-            type: Number,
-            required: [true, "Up end time is required"],
+            time: {
+                type: String,
+                required: [true, 'up end time is required']
+            },
+            timeInMin: {
+                type: Number,
+                required: [true, 'up end time in minutes is required']
+            }
         }
     },
     down: {
         startTime: {
-            type: Number,
-            required: [true, "down start time is required"],
+            time: {
+                type: String,
+                required: [true, 'down start time is required']
+            },
+            timeInMin: {
+                type: Number,
+                required: [true, 'down start time in minutes is required']
+            }
         },
         endTime: {
-            type: Number,
-            required: [true, "down end time is required"],
+            time: {
+                type: String,
+                required: [true, 'down end time is required']
+            },
+            timeInMin: {
+                type: Number,
+                required: [true, 'down end time in minutes is required']
+            }
         }
     },
     numberOfSeats: {
@@ -35,13 +59,15 @@ const busSchema = new Schema({
     },
     stops: [
         {
+            stopId: {
+                type: Schema.Types.ObjectId,
+                ref: "busstoplists",
+            },
             // name: { type: String, require: true },
             // lat: { type: Number, require: true },
             // long: { type: Number, require: true },
-            // upTime: { type: String, require: true },
-            // downTime: { type: String, require: true }
-            type: Schema.Types.ObjectId,
-            ref: "busstoplist",
+            upTime: { type: String, require: true },
+            downTime: { type: String, require: true },
         }
     ],
     driver: {

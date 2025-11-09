@@ -8,6 +8,7 @@ import Bus from "../model/bus.schema.js";
 import Stop from "../model/stop.schema.js";
 import Trip from "../model/trip.schema.js";
 import { BusAheadTime, standardTimeOptions } from "../utills/constVariables.js";
+import mongoose from "mongoose";
 
 
 const signup = async (req, res, next) => {
@@ -435,7 +436,9 @@ const oldSearch = async (req, res, next) => {
 const search = async (req, res, next) => {
 
     // const { date, from, to, distance, persons } = req.body; --re
-    const { date, busSearchTime, from, to } = req.body;
+    const { date, busSearchTime } = req.body;
+    const from = new mongoose.Types.ObjectId(req.body.from);
+    const to = new mongoose.Types.ObjectId(req.body.to);
 
     const inputDate = new Date(date);
     const today = new Date();
@@ -456,12 +459,12 @@ const search = async (req, res, next) => {
         buses = await Bus.aggregate([
             // { $match: { status: "active", isVerified: true } },
             {
-                $match: { "stops.name": { $all: [from, to] } }
+                $match: { "stops.stopId": { $all: [from, to] } }
             },
             {
                 $addFields: {
-                    fromIndex: { $indexOfArray: ["$stops.name", from] },
-                    toIndex: { $indexOfArray: ["$stops.name", to] }
+                    fromIndex: { $indexOfArray: ["$stops.stopId", from] },
+                    toIndex: { $indexOfArray: ["$stops.stopId", to] }
                 }
             },
             {
@@ -526,12 +529,22 @@ const search = async (req, res, next) => {
         buses = await Bus.aggregate([
             // { $match: { status: "active", isVerified: true } },
             {
-                $match: { "stops.name": { $all: [from, to] } }
+                $match: { "stops.stopId": { $all: [from, to] } }
             },
+
+            {
+                $lookup: {
+                    from: "busstoplists",
+                    localField: "stops.stopId",
+                    foreignField: "_id",
+                    as: "stopDetails"
+                }
+            },
+
             {
                 $addFields: {
-                    fromIndex: { $indexOfArray: ["$stops.name", from] },
-                    toIndex: { $indexOfArray: ["$stops.name", to] }
+                    fromIndex: { $indexOfArray: ["$stops.stopId", from] },
+                    toIndex: { $indexOfArray: ["$stops.stopId", to] }
                 }
             },
             {
@@ -569,7 +582,7 @@ const search = async (req, res, next) => {
             //     $sort: { diff: 1 }
             // },
             {
-                $sort: {"directions.startTime": 1}
+                $sort: { "directions.startTime": 1 }
             },
             {
                 $replaceRoot: {
@@ -580,13 +593,128 @@ const search = async (req, res, next) => {
                                 direction: "$directions.type",
                                 startTime: "$directions.startTime",
                                 endTime: "$directions.endTime",
-                                diff: "$diff"
+                                // diff: "$diff"
                             }
                         ]
                     }
                 }
+            },
+            {
+                $project: {
+                    stops: 0
+                }
             }
         ]);
+
+        // buses = await Bus.aggregate([
+        //     // Match buses that have both stops
+        //     {
+        //         $match: { "stops.stopId": { $all: [from, to] } }
+        //     },
+
+        //     // Lookup to populate stop details
+        //     {
+        //         $lookup: {
+        //             from: "busstoplists",
+        //             localField: "stops.stopId",
+        //             foreignField: "_id",
+        //             as: "stopDetails"
+        //         }
+        //     },
+
+        //     // Replace stops with full details
+        //     {
+        //         $addFields: {
+        //             stops: {
+        //                 $map: {
+        //                     input: "$stops",
+        //                     as: "s",
+        //                     in: {
+        //                         $mergeObjects: [
+        //                             "$$s",
+        //                             {
+        //                                 $arrayElemAt: [
+        //                                     {
+        //                                         $filter: {
+        //                                             input: "$stopDetails",
+        //                                             as: "sd",
+        //                                             cond: { $eq: ["$$sd._id", "$$s.stopId"] }
+        //                                         }
+        //                                     },
+        //                                     0
+        //                                 ]
+        //                             }
+        //                         ]
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     },
+
+        //     // Remove temporary stopDetails array
+        //     { $project: { stopDetails: 0 } },
+
+        //     // Compute fromIndex and toIndex
+        //     {
+        //         $addFields: {
+        //             fromIndex: { $indexOfArray: ["$stops.stopId", from] },
+        //             toIndex: { $indexOfArray: ["$stops.stopId", to] }
+        //         }
+        //     },
+
+        //     // Create directions array
+        //     {
+        //         $addFields: {
+        //             directions: [
+        //                 {
+        //                     type: "up",
+        //                     startTime: "$up.startTime.timeInMin",
+        //                     endTime: "$up.endTime.timeInMin",
+        //                     valid: { $lt: ["$fromIndex", "$toIndex"] }
+        //                 },
+        //                 {
+        //                     type: "down",
+        //                     startTime: "$down.startTime.timeInMin",
+        //                     endTime: "$down.endTime.timeInMin",
+        //                     valid: { $gt: ["$fromIndex", "$toIndex"] }
+        //                 }
+        //             ]
+        //         }
+        //     },
+
+        //     // Unwind directions
+        //     { $unwind: "$directions" },
+
+        //     // Filter valid directions & after current time
+        //     {
+        //         $match: {
+        //             "directions.valid": true,
+        //             $expr: { $gt: ["$directions.startTime", minutes] }
+        //         }
+        //     },
+
+        //     // Sort by startTime
+        //     { $sort: { "directions.startTime": 1 } },
+
+        //     // Merge directions into root
+        //     {
+        //         $replaceRoot: {
+        //             newRoot: {
+        //                 $mergeObjects: [
+        //                     "$$ROOT",
+        //                     {
+        //                         direction: "$directions.type",
+        //                         startTime: "$directions.startTime",
+        //                         endTime: "$directions.endTime"
+        //                     }
+        //                 ]
+        //             }
+        //         }
+        //     },
+
+        //     // Remove the old directions array
+        //     { $project: { directions: 0 } }
+        // ]);
 
         console.log(buses);
     }

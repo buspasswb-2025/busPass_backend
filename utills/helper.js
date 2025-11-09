@@ -37,6 +37,47 @@ export const generateOTPMessage = (name, otp) => {
     `
 }};
 
+export const generateBookingConfirmationMessage = (name, booking) => {
+  return {
+    subject: "Buspass - Seat Booking Confirmed ✅",
+
+    html: `
+      <div style="max-width: 600px; margin: auto; padding: 20px; font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 10px; background-color: #f9f9f9;">
+        <h2 style="text-align: center; color: #1363DF;">🎉 Seat Booking Confirmed!</h2>
+        
+        <p>Hi <strong>${name || "User"}</strong>,</p>
+
+        <p>Thank you for choosing <strong>Buspass</strong>! Your seat booking has been successfully confirmed. Here are your trip details:</p>
+
+        <div style="background-color: #fff; border: 1px solid #eee; border-radius: 8px; padding: 15px; margin: 20px 0;">
+          <p><strong>🚌 Trip ID:</strong> ${booking.tripId}</p>
+          <p><strong>📍 From:</strong> ${booking.from}</p>
+          <p><strong>🏁 To:</strong> ${booking.to}</p>
+          <p><strong>💺 Seats:</strong> ${booking.seatNumbers.join(", ")}</p>
+          <p><strong>💰 Total Fare:</strong> ₹${booking.totalFare}</p>
+          <p><strong>🕓 Date & Time:</strong> ${booking.tripDate} — ${booking.startTime}</p>
+        </div>
+
+        <p style="color: #555;">You can view or manage your booking anytime in your Buspass account.</p>
+
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${booking.viewBookingUrl || '#'}" style="background-color: #1363DF; color: white; padding: 12px 25px; text-decoration: none; border-radius: 6px; font-weight: bold;">
+            View Booking
+          </a>
+        </div>
+
+        <p>We wish you a pleasant and comfortable journey! ✨</p>
+
+        <p style="margin-top: 40px;">Best regards,<br><strong>Team Buspass</strong></p>
+
+        <hr style="margin-top: 30px; border: none; border-top: 1px solid #ddd;">
+        <p style="font-size: 12px; color: #777; text-align: center;">
+          This is an automated message, please do not reply directly to this email.
+        </p>
+      </div>
+    `
+  };
+};
 
 export function to24HourFormat(time) {
     let [t, meridian] = time.split(" ");
@@ -93,4 +134,17 @@ export function checkDateAndGetTime(datetimeStr) {
   });
 
   return { day: dayStatus, time: time };
+}
+
+export function timeToMinutes(timeStr) {
+  console.log("timeStr",timeStr);
+  const [time, modifier] = timeStr.split(" "); // "6:50 AM" -> ["6:50", "AM"]
+  console.log("time: ", timeStr, "modifier: ", modifier);
+  let [hours, minutes] = time.split(":").map(Number);
+  console.log('hours: ', hours, "minutes: ", minutes);
+
+  if (modifier === "PM" && hours !== 12) hours += 12;
+  if (modifier === "AM" && hours === 12) hours = 0;
+
+  return hours * 60 + minutes;
 }

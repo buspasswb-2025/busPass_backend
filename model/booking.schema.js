@@ -16,12 +16,16 @@ const bookingSchema = new mongoose.Schema({
     required: true,
   },
   from: {
-    type: String,
-    required: true,
+    name: { type: String, require: true },
+    lat: { type: Number, require: true },
+    long: { type: Number, require: true },
+    time: { type: String, require: true }
   },
   to: {
-    type: String,
-    required: true,
+    name: { type: String, require: true },
+    lat: { type: Number, require: true },
+    long: { type: Number, require: true },
+    time: { type: String, require: true }
   },
   farePerSeat: {
     type: Number,
@@ -36,15 +40,53 @@ const bookingSchema = new mongoose.Schema({
     enum: ["pending", "completed", "failed"],
     default: "pending",
   },
+  idempotencyKey: {
+    type: String,
+    required: true,
+    unique: true,
+  },
   paymentDetails: {
-    transactionId: String,
-    paymentMethod: String,
+    razorpayOrderId: { type: String },
+    paymentId: { type: String },
+    signature: { type: String },
+    paymentMethod: {
+      method: {
+        type: String
+      },
+      card: {
+        last4: { type: String },
+        network: { type: String },
+        type: { type: String }
+      },
+      vpa: { type: String },
+      bank: { type: String },
+      wallet: { type: String }
+    },
     paidAt: Date,
   },
+
+  refundDetails: {
+    status: {
+      type: String,
+    },
+    id: {
+      type: String,
+    },
+    amount: {
+      type: Number,
+    },
+    refundAt: { type: Date}
+  },
+
   status: {
     type: String,
     enum: ["active", "cancelled", "completed"],
     default: "active",
+  },
+  expireAt: {
+    type: Date,
+    default: () => new Date(Date.now() + 5 * 60 * 1000),
+    index: { expires: 0 }
   }
 }, {
   timestamps: true

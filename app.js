@@ -5,6 +5,7 @@ import errorMeddleware from './middleware/errorMeddleware.js';
 import morgan from 'morgan';
 import driverRouter from './route/driverRouter.js';
 import userRouter from './route/userRouter.js';
+import paymentRouter from './route/paymentRouter.js';
 
 
 const app = express();
@@ -13,10 +14,10 @@ app.use(express.json());
 
 app.use(express.urlencoded({extended: true}));
 
-// app.use(cors({
-//     origin: process.env.FRONTEND_URL,
-//     credentials: true
-// }));
+app.use(cors({
+    origin: process.env.FRONTEND_URL,
+    credentials: true
+}));
 
 app.use(cookieParser());
 
@@ -29,6 +30,7 @@ app.use("/test", (req, res) => {
 // all routes
 app.use('/api/driver', driverRouter);
 app.use('/api/user', userRouter);
+app.use('/api/v1/payment', paymentRouter);
 
 app.use((req, res) => {                   // handling the invalid or unknown route
     console.log("invalid route");

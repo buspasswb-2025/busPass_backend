@@ -10,51 +10,23 @@ const busSchema = new Schema({
         trim: true
     },
     up: {
-        start: {
-            time: {
-                type: String,
-                required: [true, "Up start time is required"],
-            },
-            location: {
-                name: {type: String, require: true},
-                lat: { type: Number, require: true },
-                long: { type: Number, require: true },
-            }
+        startTime: {
+            type: Number,
+            required: [true, "Up start time is required"],
         },
-        end: {
-            time: {
-                type: String,
-                required: [true, "Up end time is required"],
-            },
-            location: {
-                name: {type: String, require: true},
-                lat: { type: Number, require: true },
-                long: { type: Number, require: true },
-            }
+        endTime: {
+            type: Number,
+            required: [true, "Up end time is required"],
         }
     },
     down: {
-        start: {
-            time: {
-                type: String,
-                required: [true, "down start time is required"],
-            },
-            location: {
-                name: {type: String, require: true},
-                lat: { type: Number, require: true },
-                long: { type: Number, require: true },
-            }
+        startTime: {
+            type: Number,
+            required: [true, "down start time is required"],
         },
-        end: {
-            time: {
-                type: String,
-                required: [true, "down end time is required"],
-            },
-            location: {
-                name: {type: String, require: true},
-                lat: { type: Number, require: true },
-                long: { type: Number, require: true },
-            }
+        endTime: {
+            type: Number,
+            required: [true, "down end time is required"],
         }
     },
     numberOfSeats: {
@@ -63,11 +35,13 @@ const busSchema = new Schema({
     },
     stops: [
         {
-            name: { type: String, require: true },
-            lat: { type: Number, require: true },
-            long: { type: Number, require: true },
-            upTime: {type: String, require: true},
-            downTime: {type: String, require: true}
+            // name: { type: String, require: true },
+            // lat: { type: Number, require: true },
+            // long: { type: Number, require: true },
+            // upTime: { type: String, require: true },
+            // downTime: { type: String, require: true }
+            type: Schema.Types.ObjectId,
+            ref: "busstoplist",
         }
     ],
     driver: {
@@ -78,7 +52,7 @@ const busSchema = new Schema({
         type: Schema.Types.ObjectId,
         ref: "User",
     },
-    isVerified:{
+    isVerified: {
         type: Boolean,
         enum: [true, false],
         default: false
@@ -90,5 +64,5 @@ const busSchema = new Schema({
     }
 })
 
-const Bus = model('Bus', busSchema);
+const Bus = model('bus', busSchema);
 export default Bus;

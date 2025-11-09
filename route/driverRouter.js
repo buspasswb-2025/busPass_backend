@@ -1,6 +1,6 @@
 import express from 'express';
 import { busRegistration, checkseats, getProfile, logout, refreshAccessToken, resendOTP, signup, updateProfile, verifyOTP } from '../controller/driverController.js';
-import isLoggedIn from '../middleware/AuthUser.js';
+import {isLoggedIn} from '../middleware/AuthUser.js';
 
 
 const driverRouter = express.Router();

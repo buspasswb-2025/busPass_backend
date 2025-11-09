@@ -41,7 +41,7 @@ const userSchema = new Schema({
     },
     type: {
         type: String,
-        enum: ['driver', 'user'],
+        enum: ['driver', 'user', 'admin'],
         default: 'user'
     },
     pin: {

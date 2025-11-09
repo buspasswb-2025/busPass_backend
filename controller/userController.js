@@ -1,11 +1,13 @@
 import User from "../model/user.schema.js";
 import AppError from "../utills/error.js";
 import emailValidator from 'email-validator';
-import { calculateFare, generateOTP, generateOTPMessage } from "../utills/helper.js";
+import { calculateFare, generateOTP, generateOTPMessage, timeToMinutes } from "../utills/helper.js";
 import sendEmail from "../utills/sendEmail.js";
 import JWT from 'jsonwebtoken';
 import Bus from "../model/bus.schema.js";
 import Stop from "../model/stop.schema.js";
+import Trip from "../model/trip.schema.js";
+import { BusAheadTime, standardTimeOptions } from "../utills/constVariables.js";
 
 
 const signup = async (req, res, next) => {
@@ -39,7 +41,7 @@ const signup = async (req, res, next) => {
 
         await user.save();
 
-        const message = await generateOTPMessage(user.firstName,otp);
+        const message = await generateOTPMessage(user.firstName, otp);
         await sendEmail(email, message.subject, message.html);
 
         res.status(201).json({
@@ -178,7 +180,8 @@ const verifyOTP = async (req, res, next) => {
             message: "login successfull",
             data: {
                 accessToken: accessToken,
-                refreshToken: refreshToken
+                refreshToken: refreshToken,
+                user: user
             }
         })
     } catch (error) {
@@ -315,13 +318,13 @@ const updateProfile = async (req, res, next) => {
         return next(new AppError('user not found', 400));
     }
 
-    if(firstName) user.firstName = firstName;
-    if(lastName) user.lastName = lastName;
-    if(phone) user.contact_no = phone;
-    if(email) user.email = email;
-    if(address) user.address = address;
-    if(pin) user.pin = pin;
-    if(avatar) user.avatar = avatar;
+    if (firstName) user.firstName = firstName;
+    if (lastName) user.lastName = lastName;
+    if (phone) user.contact_no = phone;
+    if (email) user.email = email;
+    if (address) user.address = address;
+    if (pin) user.pin = pin;
+    if (avatar) user.avatar = avatar;
 
     await user.save();
 
@@ -350,14 +353,24 @@ const getAllStops = async (req, res, next) => {
 };
 
 
-const search = async (req, res, next) => {
+const oldSearch = async (req, res, next) => {
     try {
         const { datetime, from, to, distance, persons } = req.body;
 
-        const inputDateTime = new Date(datetime);
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const inputDay = new Date(inputDateTime.getFullYear(), inputDateTime.getMonth(), inputDateTime.getDate());
+        console.log(datetime)
+        // const inputDateTime = new Date(datetime);
+        // const inputDateTime = new Date(datetime);
+        // console.log("get time : ",inputDateTime.getTime());
+        // const now = new Date();
+        // const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        // console.log(today);
+        // const inputDay = new Date(inputDateTime.getFullYear(), inputDateTime.getMonth(), inputDateTime.getDate());
+        // console.log(inputDay)
+
+        const nowTime = new Date(Date.now());
+        const year = nowTime.getFullYear();
+        const month = nowTime.getMonth();
+        const day = nowTime.getDate();
 
         if (inputDay < today) {
             return next(new AppError('Invalid date', 400));
@@ -383,26 +396,34 @@ const search = async (req, res, next) => {
             })
         }
 
-        const cutoff = new Date(inputDateTime.getTime() + 30 * 60 * 1000);
+        // const cutoff = new Date(inputDateTime.getTime() + 30 * 60 * 1000);
+        // const cutoff = new Date(inputDateTime.getTime() + 30 * 60 * 1000);
+        const cutoff = new Date(Date.now() + 30 * 60 * 1000);
+        const cutoffTimeIST = cutoff.toLocaleTimeString('en-GB', {
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
 
         buses = await Bus.aggregate([
             // {$match: { status: "active", isVerified: true}},
             { $match: { "stops.name": { $all: [from, to] } } },
             {
                 $addFields: {
-                    upStartDate: {
-                        $dateFromString: { dateString: { $concat: [datePart, " ", "$up.start.time"] } }
-                    },
-                    downStartDate: {
-                        $dateFromString: { dateString: { $concat: [datePart, " ", "$down.start.time"] } }
-                    },
+                    // upStartDate: {
+                    //     $dateFromString: { dateString: { $concat: [datePart, " ", "$up.start.time"] } }
+                    // },
+                    // downStartDate: {
+                    //     $dateFromString: { dateString: { $concat: [datePart, " ", "$down.start.time"] } }
+                    // },
                     fare: farePerPerson * persons
                 }
             },
-            { $match: { $or: [{ upStartDate: { $gte: cutoff } }, { downStartDate: { $gte: cutoff } }] } }
+            { $match: { $or: [{ upStartDate: { $gte: cutoffTimeIST } }, { downStartDate: { $gte: cutoffTimeIST } }] } }
         ]);
 
-        return res.status(201).json({
+        return res.status(200).json({
             success: true,
             data: buses
         })
@@ -411,6 +432,261 @@ const search = async (req, res, next) => {
     }
 }
 
+const search = async (req, res, next) => {
+
+    // const { date, from, to, distance, persons } = req.body; --re
+    const { date, busSearchTime, from, to } = req.body;
+
+    const inputDate = new Date(date);
+    const today = new Date();
+
+    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const inputOnly = new Date(inputDate.getFullYear(), inputDate.getMonth(), inputDate.getDate());
+
+    let buses;
+
+    if (inputOnly.getTime() < todayOnly.getTime()) {
+
+        console.log("It's a past date");
+        return next(new AppError('Invalid date', 400));
+
+    } else if (inputOnly.getTime() > todayOnly.getTime() || !date) {
+        console.log("It's a future date");
+
+        buses = await Bus.aggregate([
+            // { $match: { status: "active", isVerified: true } },
+            {
+                $match: { "stops.name": { $all: [from, to] } }
+            },
+            {
+                $addFields: {
+                    fromIndex: { $indexOfArray: ["$stops.name", from] },
+                    toIndex: { $indexOfArray: ["$stops.name", to] }
+                }
+            },
+            {
+                $match: {
+                    fromIndex: { $ne: -1 },
+                    toIndex: { $ne: -1 }
+                }
+            },
+            {
+                $project: {
+                    fullBus: "$$ROOT",
+                    directions: [
+                        {
+                            type: "up",
+                            startTime: "$up.startTime.timeInMin",
+                            endTime: "$up.endTime.timeInMin",
+                            valid: { $lt: ["$fromIndex", "$toIndex"] }
+                        },
+                        {
+                            type: "down",
+                            startTime: "$down.startTime.timeInMin",
+                            endTime: "$down.endTime.timeInMin",
+                            valid: { $gt: ["$fromIndex", "$toIndex"] }
+                        }
+                    ]
+                }
+            },
+            { $unwind: "$directions" },
+            {
+                $match: {
+                    "directions.valid": true
+                }
+            },
+            {
+                $sort: { "directions.startTime": 1 }
+            },
+            {
+                $replaceRoot: {
+                    newRoot: {
+                        $mergeObjects: [
+                            "$fullBus",
+                            {
+                                direction: "$directions.type",
+                                startTime: "$directions.startTime",
+                                endTime: "$directions.endTime"
+                            }
+                        ]
+                    }
+                }
+            }
+        ]);
+
+    } else { // with Date
+        console.log("It's today");
+
+        // const busTime = new Date(today.getTime() + BusAheadTime); --re
+        // const busTimeInIST = busTime.toLocaleTimeString('en-US', standardTimeOptions); --re
+        console.log()
+        const minutes = timeToMinutes(busSearchTime) + BusAheadTime;
+        console.log(minutes);
+
+        buses = await Bus.aggregate([
+            // { $match: { status: "active", isVerified: true } },
+            {
+                $match: { "stops.name": { $all: [from, to] } }
+            },
+            {
+                $addFields: {
+                    fromIndex: { $indexOfArray: ["$stops.name", from] },
+                    toIndex: { $indexOfArray: ["$stops.name", to] }
+                }
+            },
+            {
+                $project: {
+                    fullBus: "$$ROOT",
+                    directions: [
+                        {
+                            type: "up",
+                            startTime: "$up.startTime.timeInMin",
+                            endTime: "$up.endTime.timeInMin",
+                            valid: { $lt: ["$fromIndex", "$toIndex"] }
+                        },
+                        {
+                            type: "down",
+                            startTime: "$down.startTime.timeInMin",
+                            endTime: "$down.endTime.timeInMin",
+                            valid: { $gt: ["$fromIndex", "$toIndex"] }
+                        }
+                    ]
+                }
+            },
+            { $unwind: "$directions" },
+            {
+                $match: {
+                    "directions.valid": true,
+                    $expr: { $gt: ["$directions.startTime", minutes] }
+                }
+            },
+            // {
+            //     $addFields: {
+            //         diff: { $subtract: ["$directions.startTime", minutes] }
+            //     }
+            // },
+            // {
+            //     $sort: { diff: 1 }
+            // },
+            {
+                $sort: {"directions.startTime": 1}
+            },
+            {
+                $replaceRoot: {
+                    newRoot: {
+                        $mergeObjects: [
+                            "$fullBus",
+                            {
+                                direction: "$directions.type",
+                                startTime: "$directions.startTime",
+                                endTime: "$directions.endTime",
+                                diff: "$diff"
+                            }
+                        ]
+                    }
+                }
+            }
+        ]);
+
+        console.log(buses);
+    }
+
+    return res.status(200).json({
+        success: true,
+        data: buses
+    })
+}
 
 
-export { signup, verifyOTP, resendOTP, refreshAccessToken, logout, getProfile, search, getAllStops, updateProfile };
+const getTrip = async (req, res, next) => {
+    try {
+        const { busId, date, fromStop, toStop } = req.body;
+
+        if (!busId || !date || !fromStop || !toStop) {
+            return next(new AppError("All fields are required", 400));
+        }
+
+        const tripDate = new Date(date);
+        tripDate.setHours(0, 0, 0, 0);
+
+        const bus = await Bus.findById(busId);
+        if (!bus) return next(new AppError("Bus not found", 404));
+
+        const fromIndex = bus.stops.findIndex(s => s.name === fromStop);
+        const toIndex = bus.stops.findIndex(s => s.name === toStop);
+
+        if (fromIndex === -1 || toIndex === -1)
+            return next(new AppError("Stop not found in bus", 400));
+
+        const direction = fromIndex < toIndex ? 'up' : 'down';
+
+        const startTime = direction === 'up' ? bus.up.start.time : bus.down.start.time;
+        const endTime = direction === 'up' ? bus.up.end.time : bus.down.end.time;
+
+        const existingTrip = await Trip.findOne({
+            bus: busId,
+            date: tripDate,
+            startTime,
+        });
+
+        if (existingTrip) {
+            return res.status(200).json({
+                success: true,
+                trip: existingTrip,
+            });
+        }
+
+        // Generate seat bookings
+        const seatBookings = [];
+        for (let i = 1; i <= bus.numberOfSeats; i++) {
+            seatBookings.push({
+                seatNumber: i,
+                isBooked: 'available',
+            });
+        }
+
+        const newTrip = await Trip.create({
+            bus: bus._id,
+            date: tripDate,
+            startTime,
+            endTime,
+            totalSeats: bus.numberOfSeats,
+            availableSeats: bus.numberOfSeats,
+            seatBookings,
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: 'Trip created successfully',
+            trip: newTrip,
+        });
+
+    } catch (err) {
+        return next(new AppError(err.message, 500));
+    }
+}
+
+const deleteAccount = async (req, res, next) => {
+    const { id } = req.user;
+
+    try {
+        const userDetails = await User.findById(id);
+
+        if (!userDetails) {
+            return next(new AppError('User does not exist', 400));
+        }
+
+        await User.findByIdAndDelete(id);
+
+        res.status(200).json({
+            success: true,
+            message: 'Account is successfully deleted'
+        })
+    } catch (err) {
+        return next(new AppError(err.message, 400));
+    }
+}
+
+
+
+export { signup, verifyOTP, resendOTP, refreshAccessToken, logout, getProfile, search, getAllStops, updateProfile, getTrip, deleteAccount };

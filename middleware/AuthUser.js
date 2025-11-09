@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import AppError from "../utills/error.js";
 
 const isLoggedIn = (req, res, next) => {
   const token = req.headers?.authorization;
@@ -31,5 +32,17 @@ const isLoggedIn = (req, res, next) => {
   }
 };
 
-export default isLoggedIn;
+const authorizedRoles = (...roles) => async (req, res, next) => {
+  const userRole = req.user.type;
+  if(!roles.includes(userRole)){
+    return next(new AppError('You do not have permission to access this route', 400));
+  }
+
+  next();
+}
+
+export { 
+  isLoggedIn,
+  authorizedRoles
+};
 

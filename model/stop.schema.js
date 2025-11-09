@@ -1,16 +1,20 @@
 import { Schema, model } from "mongoose";
 
 const stopSchema = new Schema({
-  name: {
+  stopName: {
     type: String,
     required: true,
     unique: true,
   },
-  location: {
-    lat: Number,
-    lng: Number,
+  Latitude: {
+    type: String,
+    required: true
+  },
+  Longitude: {
+    type: String,
+    required: true
   }
 });
 
-const Stop = model("BusStopList", stopSchema);
+const Stop = model("busstoplist", stopSchema);
 export default Stop;

@@ -41,17 +41,24 @@ const tripSchema = new Schema({
         default: 'available'
       },
       pickupStop: {
-        type: Schema.Types.ObjectId,
-        ref: 'Stop',
+        name: { type: String, require: true },
+        lat: { type: Number, require: true },
+        long: { type: Number, require: true },
+        time: {type: String, require: true}
       },
       dropStop: {
-        type: Schema.Types.ObjectId,
-        ref: 'Stop',
+        name: { type: String, require: true },
+        lat: { type: Number, require: true },
+        long: { type: Number, require: true },
+        time: {type: String, require: true}
       },
       booking: {
         type: Schema.Types.ObjectId,
         ref: "Booking",
       },
+      expire: {
+        type: Date,
+      }
     }
   ],
   isCancelled: {

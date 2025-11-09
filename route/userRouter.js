@@ -15,7 +15,7 @@ userRouter.post('/updateProfile', isLoggedIn, updateProfile);
 
 userRouter.get('/logout', isLoggedIn, logout);
 userRouter.get('/getuser', isLoggedIn, getProfile);
-userRouter.get('/getAllStops', isLoggedIn, getAllStops);
+userRouter.get('/getAllStops', getAllStops); // isLoggedIn, 
 
 
 export default userRouter;

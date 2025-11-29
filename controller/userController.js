@@ -461,6 +461,48 @@ const search = async (req, res, next) => {
             {
                 $match: { "stops.stopId": { $all: [from, to] } }
             },
+            // lookup
+            {
+                $lookup: {
+                    from: "busstoplists",
+                    let: { stopIds: "$stops.stopId" },
+                    pipeline: [
+                        { $match: { $expr: { $in: ["$_id", "$$stopIds"] } } },
+                        { $project: { _id: 1, stopName: 1, Latitude: 1, Longitude: 1 } }
+                    ],
+                    as: "stopDetails"
+                }
+            },
+
+            //Maintain stop order and only attach minimal data
+            {
+                $addFields: {
+                    stops: {
+                        $map: {
+                            input: "$stops",
+                            as: "s",
+                            in: {
+                                stopId: "$$s.stopId",
+                                upTime: "$$s.upTime",
+                                downTime: "$$s.downTime",
+                                stop: {
+                                    $arrayElemAt: [
+                                        {
+                                            $filter: {
+                                                input: "$stopDetails",
+                                                as: "sd",
+                                                cond: { $eq: ["$$sd._id", "$$s.stopId"] }
+                                            }
+                                        },
+                                        0
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+
             {
                 $addFields: {
                     fromIndex: { $indexOfArray: ["$stops.stopId", from] },
@@ -514,6 +556,11 @@ const search = async (req, res, next) => {
                         ]
                     }
                 }
+            },
+            {
+                $project: {
+                    stopDetails: 0
+                }
             }
         ]);
 
@@ -532,12 +579,53 @@ const search = async (req, res, next) => {
                 $match: { "stops.stopId": { $all: [from, to] } }
             },
 
+            // {
+            //     $lookup: {
+            //         from: "busstoplists",
+            //         localField: "stops.stopId",
+            //         foreignField: "_id",
+            //         as: "stopDetails"
+            //     }
+            // },
+
             {
                 $lookup: {
                     from: "busstoplists",
-                    localField: "stops.stopId",
-                    foreignField: "_id",
+                    let: { stopIds: "$stops.stopId" },
+                    pipeline: [
+                        { $match: { $expr: { $in: ["$_id", "$$stopIds"] } } },
+                        { $project: { _id: 1, stopName: 1, Latitude: 1, Longitude: 1 } }
+                    ],
                     as: "stopDetails"
+                }
+            },
+
+            //Maintain stop order and only attach minimal data
+            {
+                $addFields: {
+                    stops: {
+                        $map: {
+                            input: "$stops",
+                            as: "s",
+                            in: {
+                                stopId: "$$s.stopId",
+                                upTime: "$$s.upTime",
+                                downTime: "$$s.downTime",
+                                stop: {
+                                    $arrayElemAt: [
+                                        {
+                                            $filter: {
+                                                input: "$stopDetails",
+                                                as: "sd",
+                                                cond: { $eq: ["$$sd._id", "$$s.stopId"] }
+                                            }
+                                        },
+                                        0
+                                    ]
+                                }
+                            }
+                        }
+                    }
                 }
             },
 
@@ -601,7 +689,7 @@ const search = async (req, res, next) => {
             },
             {
                 $project: {
-                    stops: 0
+                    stopDetails: 0
                 }
             }
         ]);
@@ -728,33 +816,36 @@ const search = async (req, res, next) => {
 
 const getTrip = async (req, res, next) => {
     try {
-        const { busId, date, fromStop, toStop } = req.body;
+        const { busId, date, fromStop, toStop, direction } = req.body;
 
-        if (!busId || !date || !fromStop || !toStop) {
+        if (!busId || !date) { // || !fromStop || !toStop
             return next(new AppError("All fields are required", 400));
         }
 
         const tripDate = new Date(date);
         tripDate.setHours(0, 0, 0, 0);
 
+        console.log(busId, date, direction);
+
         const bus = await Bus.findById(busId);
         if (!bus) return next(new AppError("Bus not found", 404));
 
-        const fromIndex = bus.stops.findIndex(s => s.name === fromStop);
-        const toIndex = bus.stops.findIndex(s => s.name === toStop);
+        // const fromIndex = bus.stops.findIndex(s => s.name === fromStop);
+        // const toIndex = bus.stops.findIndex(s => s.name === toStop);
 
-        if (fromIndex === -1 || toIndex === -1)
-            return next(new AppError("Stop not found in bus", 400));
+        // if (fromIndex === -1 || toIndex === -1)
+        //     return next(new AppError("Stop not found in bus", 400));
 
-        const direction = fromIndex < toIndex ? 'up' : 'down';
+        // const direction = fromIndex < toIndex ? 'up' : 'down';
 
-        const startTime = direction === 'up' ? bus.up.start.time : bus.down.start.time;
-        const endTime = direction === 'up' ? bus.up.end.time : bus.down.end.time;
+        const startTime = direction === 'up' ? bus.up.startTime : bus.down.startTime;
+        const endTime = direction === 'up' ? bus.up.endTime : bus.down.endTime;
 
         const existingTrip = await Trip.findOne({
             bus: busId,
             date: tripDate,
             startTime,
+            direction,
         });
 
         if (existingTrip) {
@@ -773,13 +864,16 @@ const getTrip = async (req, res, next) => {
             });
         }
 
+        console.log(bus);
+
         const newTrip = await Trip.create({
             bus: bus._id,
             date: tripDate,
             startTime,
             endTime,
-            totalSeats: bus.numberOfSeats,
-            availableSeats: bus.numberOfSeats,
+            direction,
+            totalSeats: bus.numberOfSeats || 60,
+            availableSeats: bus.numberOfSeats || 60,
             seatBookings,
         });
 

@@ -1,5 +1,5 @@
 import express from 'express';
-import {getAllStops, getProfile, logout, refreshAccessToken, resendOTP, search, signup, updateProfile, verifyOTP } from '../controller/userController.js';
+import {getAllStops, getProfile, getTrip, logout, refreshAccessToken, resendOTP, search, signup, updateProfile, verifyOTP } from '../controller/userController.js';
 import {isLoggedIn} from '../middleware/AuthUser.js';
 
 
@@ -11,7 +11,7 @@ userRouter.post('/verifyOTP', verifyOTP);
 userRouter.post('/refreshToken', refreshAccessToken);
 userRouter.post('/search', search); //isLoggedIn
 userRouter.post('/updateProfile', isLoggedIn, updateProfile);
-
+userRouter.post('/getTrip', getTrip); //isLoggedIn
 
 userRouter.get('/logout', isLoggedIn, logout);
 userRouter.get('/getuser', isLoggedIn, getProfile);

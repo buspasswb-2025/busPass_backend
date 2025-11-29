@@ -11,11 +11,28 @@ const tripSchema = new Schema({
     required: true,
   },
   startTime: {
-    type: String,
-    required: true,
+    time: {
+      type: String,
+      required: [true, 'Trip start time is required']
+    },
+    timeInMin: {
+      type: Number,
+      required: [true, 'Trip start time in minutes is required']
+    }
   },
   endTime: {
+    time: {
+      type: String,
+      required: [true, 'Trip end time is required']
+    },
+    timeInMin: {
+      type: Number,
+      required: [true, 'Trip end time in minutes is required']
+    }
+  },
+  direction: {
     type: String,
+    enum: ['up', 'down'],
   },
   totalSeats: {
     type: Number,
@@ -40,18 +57,46 @@ const tripSchema = new Schema({
         enum: ['reserved', 'available', 'booked'],
         default: 'available'
       },
-      pickupStop: {
-        name: { type: String, require: true },
-        lat: { type: Number, require: true },
-        long: { type: Number, require: true },
-        time: {type: String, require: true}
-      },
-      dropStop: {
-        name: { type: String, require: true },
-        lat: { type: Number, require: true },
-        long: { type: Number, require: true },
-        time: {type: String, require: true}
-      },
+      // pickupStop: {
+      //   stopId: {
+      //     type: Schema.Types.ObjectId,
+      //     ref: "busstoplists",
+      //   },
+      //   stopName: {
+      //     type: String,
+      //     required: true,
+      //     unique: true,
+      //   },
+      //   Latitude: {
+      //     type: String,
+      //     required: true
+      //   },
+      //   Longitude: {
+      //     type: String,
+      //     required: true
+      //   },
+      //   time: { type: String, require: true }
+      // },
+      // dropStop: {
+      //   stopId: {
+      //     type: Schema.Types.ObjectId,
+      //     ref: "busstoplists",
+      //   },
+      //   stopName: {
+      //     type: String,
+      //     required: true,
+      //     unique: true,
+      //   },
+      //   Latitude: {
+      //     type: String,
+      //     required: true
+      //   },
+      //   Longitude: {
+      //     type: String,
+      //     required: true
+      //   },
+      //   time: { type: String, require: true }
+      // },
       booking: {
         type: Schema.Types.ObjectId,
         ref: "Booking",

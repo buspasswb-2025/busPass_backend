@@ -126,10 +126,12 @@ import { generateBookingConfirmationMessage } from "../utills/helper.js";
 // }
 
 const createOrderAndLockSeat = async (req, res, next) => {
-    const userId = req.user?.id;
-    if (!userId) return next(new AppError("Authentication required", 401));
+    // const userId = req.user?.id;
+    // if (!userId) return next(new AppError("Authentication required", 401));
 
-    const { tripId, seats, totalFare, from, to, idempotencyKey } = req.body;
+    const { tripId, seats, totalFare, from, to, idempotencyKey, userIdInBody } = req.body;
+    const userId = new mongoose.Types.ObjectId(userIdInBody);
+    // console.log(tripId, seats, totalFare, from, to, idempotencyKey, userIdInBody);
 
     if (!tripId || !Array.isArray(seats) || seats.length === 0 || !totalFare || !from || !to || !idempotencyKey) {
         return next(new AppError("tripId, seats[], totalFare, from, to and idempotencyKey are required", 400));
@@ -139,8 +141,8 @@ const createOrderAndLockSeat = async (req, res, next) => {
     session.startTransaction();
 
     try {
-        const agg = getAgg(tripId);
-        const aggResult = await Trip.aggregate(agg, { session }).toArray();
+        const agg = getAgg(tripId, seats);
+        const aggResult = await Trip.aggregate(agg, { session });
         if (!aggResult || aggResult.length === 0) {
             await session.abortTransaction();
             session.endSession();
@@ -173,31 +175,23 @@ const createOrderAndLockSeat = async (req, res, next) => {
         // const { locked, failed } = await lockSeats(tripId, seats, userId, 300);
 
         //----- with error handling
-        let lockedSeats = [], failedSeats = [];
+        let lockedSeats = [], failedSeats = [], result;
         try {
-            ({ locked: lockedSeats, failed: failedSeats } = await lockSeats(tripId, seats, userId, idempotencyKey, seat_ttl));
-        } catch {
-            try {
-                // Redis fallback: rebuild from MongoDB
-                await rebuildRedisLocks();
-                ({ locked: lockedSeats, failed: failedSeats } = await lockSeats(tripId, seats, userId, seat_ttl));
-            } catch (err) {
-                // Final fallback: mark seats reserved directly in MongoDB
-                // const mongoResult = await markSeatsAsReservedInMongo(tripId, seats, `fallback_${Date.now()}`, userId, session);
-                // if(!mongoResult){
-                //     return next(new AppError('redis server is failed and with mongodb also error occured', 500));
-                // }
-                // console.log('these seats are reserved in mongodb', mongoResult);
-                // lockedSeats = seats;
-                // failedSeats = [];
-
-                return next(new AppError(err, 500));
-            }
+            // const { locked: lockedSeats, failed: failedSeats } = await lockSeats(tripId, seats, userId, idempotencyKey, seat_ttl);
+            result = await lockSeats(tripId, seats, userId, idempotencyKey, seat_ttl);
+            lockedSeats = result.locked;
+            failedSeats = result.failed;
+            console.log(result);
+        } catch (err) {
+            console.log(err);
+            await session.abortTransaction();
+            session.endSession();
+            return next(new AppError(err.message, 400));
         }
         //---------
 
-        if (failed && failed.length > 0) {
-            if (locked && locked.length > 0) {
+        if (failedSeats && failedSeats.length > 0) {
+            if (lockedSeats && lockedSeats.length > 0) {
                 await releaseSeats(tripId, seats, userId, idempotencyKey).catch(() => Promise.resolve());
             }
             await session.abortTransaction();
@@ -205,26 +199,30 @@ const createOrderAndLockSeat = async (req, res, next) => {
             return res.status(409).json({
                 success: false,
                 message: "Some seats are already reserved by other users",
-                seats: failed
+                result
             });
         }
 
         const holdMinutes = Number(process.env.SEAT_HOLD_MINUTES || 5);
         const expireAt = new Date(Date.now() + holdMinutes * 60 * 1000);
 
-        const newBooking = await Booking.create(
-            {
-                trip: mongoose.Types.ObjectId(tripId),
-                bookedBy: mongoose.Types.ObjectId(userId),
+        const [newBooking] = await Booking.create(
+            [{
+                trip: new mongoose.Types.ObjectId(tripId),
+                bookedBy: new mongoose.Types.ObjectId(userId),
                 seatNumbers: seats,
-                from,
-                to,
+                from: {
+                    stopId: new mongoose.Types.ObjectId(from)
+                },
+                to: {
+                    stopId: new mongoose.Types.ObjectId(to)
+                },
                 farePerSeat: totalFare / seats.length,
                 totalFare,
                 paymentStatus: "pending",
                 idempotencyKey,
                 expireAt
-            },
+            }],
             { session }
         );
 
@@ -260,7 +258,9 @@ const createOrderAndLockSeat = async (req, res, next) => {
             expiresAt: expireAt
         });
     } catch (err) {
-        await session.abortTransaction();
+        try {
+            await session.abortTransaction();
+        } catch { }
         session.endSession();
 
         if (Array.isArray(seats) && tripId && req.user?.id) {
@@ -278,7 +278,7 @@ const verifyPayment = async (req, res, next) => {
     const { bookingId } = req.body;
 
     try {
-        const bookingDetails = await Booking.findById(bookingId).populate({path: "bookedBy", select: "email firstName lastName"}).session(session);
+        const bookingDetails = await Booking.findById(bookingId).populate({ path: "bookedBy", select: "email firstName lastName" }).session(session);
         if (!bookingDetails) {
             await session.abortTransaction();
             session.endSession();
@@ -377,7 +377,9 @@ const verifyPayment = async (req, res, next) => {
             tripUpdate
         });
     } catch (err) {
-        await session.abortTransaction();
+        try {
+            await session.abortTransaction();
+        } catch { }
         session.endSession();
 
         if (req.body.seatNumbers && req.body.tripId && req.user?.id) {
@@ -389,31 +391,33 @@ const verifyPayment = async (req, res, next) => {
 };
 
 const releaseLockedSeats = async (req, res, next) => {
-    const { bookingId, tripId, idempotencyKey, seatNumbers } = req.body;
-    const userId = req.user?.id;
+    const { bookingId, tripId, idempotencyKey, seatNumbers, userIdInBody } = req.body;
+    // const userId = req.user?.id;
+    const userId = new mongoose.Types.ObjectId(userIdInBody);
 
     try {
-        if (!bookingId || !userId && !tripId && !idempotencyKey && !seatNumbers) {
+        if (!bookingId && (!userId || !tripId || !idempotencyKey || !seatNumbers)) {
             return next(new AppError('all fields are required!, please send all necessary fields', 400))
         }
 
         if (bookingId) {
-            const bookingDetails = await Booking.findById(bookingId);
+            const bookingDetails = await Booking.findById(new mongoose.Types.ObjectId(bookingId));
 
             if (!bookingDetails) {
                 return next(new AppError('Invalid Booking Id', 404));
             }
 
-            const result = await releaseSeats(bookingDetails.trip, bookingDetails.seatNumbers, req.user.id, bookingDetails.idempotencyKey).catch(() => Promise.resolve());
-
-            if (result.status === 'FAILED') {
-                return res.status(500).json({
-                    message: 'Internal Server Error, Failed to released seats',
+            const result = await releaseSeats(bookingDetails.trip, bookingDetails.seatNumbers, userId, bookingDetails.idempotencyKey)
+            if (!result || result.status === 'FAILED') {
+                return res.status(400).json({
+                    message: 'Failed to release seats',
+                    reason: result?.reason || 'Unknown error',
                     data: result
                 });
             }
+            console.log(result);
 
-            await Booking.findByIdAndDelete(bookingId);
+            await Booking.findByIdAndDelete(bookingDetails._id);
 
             return res.status(200).json({
                 message: 'seats are released successfully',
@@ -421,20 +425,23 @@ const releaseLockedSeats = async (req, res, next) => {
                 bookingDetails: bookingDetails
             })
         } else {
-            const bookingDetails = await Booking.findOne({ bookedBy: userId, idempotencyKey, tripId, seatNumbers });
+            const bookingDetails = await Booking.findOne({ bookedBy: userId, idempotencyKey, trip: new mongoose.Types.ObjectId(tripId), seatNumbers });
 
             if (!bookingDetails) {
                 return next(new AppError('Booking is not exist with these credential', 404));
             }
 
-            const result = await releaseSeats(bookingDetails.trip, bookingDetails.seatNumbers, req.user.id, bookingDetails.idempotencyKey).catch(() => Promise.resolve());
+            // const result = await releaseSeats(bookingDetails.trip, bookingDetails.seatNumbers, userId, bookingDetails.idempotencyKey);
+            const result = await releaseSeats(tripId, seatNumbers, userId, idempotencyKey);
 
-            if (result.status === 'FAILED') {
-                return res.status(500).json({
-                    message: 'Internal Server Error, Failed to released seats',
+            if (!result || result.status === 'FAILED') {
+                return res.status(400).json({
+                    message: 'Failed to release seats',
+                    reason: result?.reason || 'Unknown error',
                     data: result
                 });
             }
+            console.log(result);
 
             await Booking.findByIdAndDelete(bookingDetails._id);
 

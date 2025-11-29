@@ -2,8 +2,8 @@ import Booking from "../model/booking.schema.js";
 import Trip from "../model/trip.schema.js";
 import mongoose from "mongoose";
 
-export const getAgg = (tripId) => ([
-  { $match: { _id: mongoose.Types.ObjectId(tripId) } },
+export const getAgg = (tripId, seats) => ([
+  { $match: { _id: new mongoose.Types.ObjectId(tripId) } },
   {
     $project: {
       _id: 1,
@@ -66,7 +66,7 @@ export const markSeatsAsReservedInMongo = async (tripId, seats, bookingId, userI
 };
 
 
-export const rebuildRedisLocks = async () => {
+export const rebuildRedisLocks = async (redis) => {
   // 1. Find all pending bookings that are not expired
   const now = new Date();
   const bookings = await Booking.find({

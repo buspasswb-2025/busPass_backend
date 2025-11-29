@@ -1,13 +1,13 @@
-import mongoose from "mongoose";
+import { model, Schema } from "mongoose";
 
-const bookingSchema = new mongoose.Schema({
+const bookingSchema = new Schema({
   bookedBy: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: "User",
     required: true,
   },
   trip: {
-    type: mongoose.Schema.Types.ObjectId,
+    type: Schema.Types.ObjectId,
     ref: "Trip",
     required: true,
   },
@@ -16,16 +16,48 @@ const bookingSchema = new mongoose.Schema({
     required: true,
   },
   from: {
-    name: { type: String, require: true },
-    lat: { type: Number, require: true },
-    long: { type: Number, require: true },
-    time: { type: String, require: true }
+    stopId: {
+      type: Schema.Types.ObjectId,
+      ref: "busstoplists",
+    },
+    stopName: {
+      type: String,
+      // required: true,
+    },
+    Latitude: {
+      type: String,
+      // required: true
+    },
+    Longitude: {
+      type: String,
+      // required: true
+    },
+    time: { 
+      type: String, 
+      require: true
+    }
   },
   to: {
-    name: { type: String, require: true },
-    lat: { type: Number, require: true },
-    long: { type: Number, require: true },
-    time: { type: String, require: true }
+    stopId: {
+      type: Schema.Types.ObjectId,
+      ref: "busstoplists",
+    },
+    stopName: {
+      type: String,
+      // required: true,
+    },
+    Latitude: {
+      type: String,
+      // required: true
+    },
+    Longitude: {
+      type: String,
+      // required: true
+    },
+    time: { 
+      type: String, 
+      // require: true 
+    }
   },
   farePerSeat: {
     type: Number,
@@ -75,7 +107,7 @@ const bookingSchema = new mongoose.Schema({
     amount: {
       type: Number,
     },
-    refundAt: { type: Date}
+    refundAt: { type: Date }
   },
 
   status: {
@@ -92,5 +124,5 @@ const bookingSchema = new mongoose.Schema({
   timestamps: true
 });
 
-const Booking = mongoose.model("Booking", bookingSchema);
+const Booking = model("Booking", bookingSchema);
 export default Booking;

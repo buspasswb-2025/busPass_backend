@@ -9,6 +9,7 @@ import { lockSeats, releaseSeats } from "../services/redisServices.js";
 import { seat_ttl } from "../utills/constVariables.js";
 import sendEmail from "../utills/sendEmail.js";
 import { generateBookingConfirmationMessage } from "../utills/helper.js";
+import { io } from "../index.js";
 
 
 
@@ -130,13 +131,19 @@ const createOrderAndLockSeat = async (req, res, next) => {
     // if (!userId) return next(new AppError("Authentication required", 401));
 
     const { tripId, seats, totalFare, from, to, idempotencyKey, userIdInBody } = req.body;
+    from.stopId = new mongoose.Types.ObjectId(from._id);
+    console.log("from stopId : ", from.stopId);
+    delete from._id;
+    to.stopId = new mongoose.Types.ObjectId(to._id);
+    delete to._id;
+    console.log("new from : ",from);
+    console.log('new to : ', to);
     const userId = new mongoose.Types.ObjectId(userIdInBody);
     // console.log(tripId, seats, totalFare, from, to, idempotencyKey, userIdInBody);
 
     if (!tripId || !Array.isArray(seats) || seats.length === 0 || !totalFare || !from || !to || !idempotencyKey) {
         return next(new AppError("tripId, seats[], totalFare, from, to and idempotencyKey are required", 400));
     }
-
     const session = await mongoose.startSession();
     session.startTransaction();
 
@@ -161,7 +168,7 @@ const createOrderAndLockSeat = async (req, res, next) => {
         }
 
         const existingBooking = await Booking.findOne({ idempotencyKey, trip: tripId, bookedBy: userId }).session(session).lean();
-        if (existingBooking) {
+        if (existingBooking && existingBooking.expireAt.getTime() > Date.now()) {
             await session.abortTransaction();
             session.endSession();
             return res.status(200).json({
@@ -211,12 +218,14 @@ const createOrderAndLockSeat = async (req, res, next) => {
                 trip: new mongoose.Types.ObjectId(tripId),
                 bookedBy: new mongoose.Types.ObjectId(userId),
                 seatNumbers: seats,
-                from: {
-                    stopId: new mongoose.Types.ObjectId(from)
-                },
-                to: {
-                    stopId: new mongoose.Types.ObjectId(to)
-                },
+                // from: {
+                //     stopId: new mongoose.Types.ObjectId(from)
+                // },
+                // to: {
+                //     stopId: new mongoose.Types.ObjectId(to)
+                // },
+                from,
+                to,
                 farePerSeat: totalFare / seats.length,
                 totalFare,
                 paymentStatus: "pending",
@@ -244,6 +253,8 @@ const createOrderAndLockSeat = async (req, res, next) => {
 
         await session.commitTransaction();
         session.endSession();
+
+        io.to(tripId).emit('seat_reserved',{seatNumbers: seats, tripId: tripId})
 
         return res.status(200).json({
             success: true,

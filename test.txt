@@ -1,0 +1,152 @@
+// services/seatLockService.js
+
+import { lockLua, releaseLua } from "../utills/luaScript.js";
+import redis from '../config/redisConfig.js';
+
+// ... (previous functions remain same)
+
+/**
+ * Get detailed information about locked seats for a trip
+ * @param {string} tripId - Trip identifier
+ * @returns {Promise<Object>} Detailed seat lock information
+ */
+const getLockedSeatsDetails = async (tripId) => {
+  try {
+    const seatListKey = `trip:${tripId}:seats`;
+    
+    // Get all locked seat numbers
+    const lockedSeatNumbers = await redis.smembers(seatListKey);
+    
+    if (lockedSeatNumbers.length === 0) {
+      return {
+        tripId,
+        lockedSeats: [],
+        count: 0,
+        bookings: []
+      };
+    }
+
+    // Get all booking keys for this trip
+    const bookingPattern = `trip:${tripId}:booking:*`;
+    const bookings = [];
+    let cursor = '0';
+
+    do {
+      const [newCursor, keys] = await redis.scan(
+        cursor,
+        'MATCH',
+        bookingPattern,
+        'COUNT',
+        100
+      );
+      cursor = newCursor;
+
+      // Filter out backup keys
+      const bookingKeys = keys.filter(key => !key.endsWith(':backup'));
+
+      // Get booking details for each key
+      for (const key of bookingKeys) {
+        const bookingData = await redis.get(key);
+        if (bookingData) {
+          const booking = JSON.parse(bookingData);
+          const ttl = await redis.ttl(key);
+          
+          // Extract bookingId from key: trip:123:booking:booking-abc-456
+          const bookingId = key.split(':')[3];
+          
+          bookings.push({
+            bookingId,
+            userId: booking.userId,
+            seats: booking.seats,
+            lockedAt: booking.lockedAt,
+            ttl,
+            expiresAt: ttl > 0 ? new Date(Date.now() + ttl * 1000) : null,
+            expiresIn: ttl > 0 ? `${Math.floor(ttl / 60)}m ${ttl % 60}s` : 'expired'
+          });
+        }
+      }
+    } while (cursor !== '0');
+
+    return {
+      tripId,
+      lockedSeats: lockedSeatNumbers.map(s => parseInt(s)).sort((a, b) => a - b),
+      count: lockedSeatNumbers.length,
+      bookings,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("Error getting locked seats details:", error);
+    throw new Error(`Failed to get locked seats: ${error.message}`);
+  }
+};
+
+/**
+ * Get available seats for a trip (assuming you have total seats)
+ * @param {string} tripId - Trip identifier
+ * @param {number} totalSeats - Total number of seats in the trip
+ * @returns {Promise<Object>} Available and locked seats
+ */
+const getAvailableSeats = async (tripId, totalSeats) => {
+  try {
+    const lockedSeats = await getLockedSeats(tripId);
+    const allSeats = Array.from({ length: totalSeats }, (_, i) => i + 1);
+    const availableSeats = allSeats.filter(seat => !lockedSeats.includes(seat));
+
+    return {
+      tripId,
+      totalSeats,
+      availableSeats,
+      lockedSeats,
+      availableCount: availableSeats.length,
+      lockedCount: lockedSeats.length,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("Error getting available seats:", error);
+    throw new Error(`Failed to get available seats: ${error.message}`);
+  }
+};
+
+/**
+ * Check if specific seats are available
+ * @param {string} tripId - Trip identifier
+ * @param {number[]} seats - Seats to check
+ * @returns {Promise<Object>} Availability status for each seat
+ */
+const checkSeatAvailability = async (tripId, seats) => {
+  try {
+    const seatListKey = `trip:${tripId}:seats`;
+    const results = {};
+
+    for (const seat of seats) {
+      const isLocked = await redis.sismember(seatListKey, seat.toString());
+      results[seat] = !isLocked; // true if available, false if locked
+    }
+
+    const available = seats.filter(s => results[s]);
+    const locked = seats.filter(s => !results[s]);
+
+    return {
+      tripId,
+      requestedSeats: seats,
+      available,
+      locked,
+      allAvailable: locked.length === 0,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error("Error checking seat availability:", error);
+    throw new Error(`Failed to check seat availability: ${error.message}`);
+  }
+};
+
+export { 
+  lockSeats, 
+  releaseSeats, 
+  getBooking,
+  getLockedSeats,
+  getLockedSeatsDetails,
+  getAvailableSeats,
+  checkSeatAvailability,
+  getAllBookingsForTrip
+};

@@ -1,5 +1,5 @@
 
-const seat_ttl = 300;
+const seat_ttl = 180;
 
 const standardTimeOptions = {
     timeZone: 'Asia/Kolkata',

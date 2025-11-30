@@ -9,6 +9,7 @@ import Stop from "../model/stop.schema.js";
 import Trip from "../model/trip.schema.js";
 import { BusAheadTime, standardTimeOptions } from "../utills/constVariables.js";
 import mongoose from "mongoose";
+import { getLockedSeatsDetails } from "../services/redisServices.js";
 
 
 const signup = async (req, res, next) => {
@@ -827,7 +828,8 @@ const getTrip = async (req, res, next) => {
 
         console.log(busId, date, direction);
 
-        const bus = await Bus.findById(busId);
+        const bus = await Bus.findById(busId).lean();
+        // console.log(bus);
         if (!bus) return next(new AppError("Bus not found", 404));
 
         // const fromIndex = bus.stops.findIndex(s => s.name === fromStop);
@@ -841,17 +843,20 @@ const getTrip = async (req, res, next) => {
         const startTime = direction === 'up' ? bus.up.startTime : bus.down.startTime;
         const endTime = direction === 'up' ? bus.up.endTime : bus.down.endTime;
 
-        const existingTrip = await Trip.findOne({
+        let existingTrip = await Trip.findOne({
             bus: busId,
             date: tripDate,
             startTime,
             direction,
-        });
+        }).lean();
 
+        const reservedSeats = await getLockedSeatsDetails(existingTrip._id);
         if (existingTrip) {
+            existingTrip.busName = bus.busName;
             return res.status(200).json({
                 success: true,
                 trip: existingTrip,
+                reservedSeats: reservedSeats
             });
         }
 
@@ -864,9 +869,7 @@ const getTrip = async (req, res, next) => {
             });
         }
 
-        console.log(bus);
-
-        const newTrip = await Trip.create({
+        let newTrip = await Trip.create({
             bus: bus._id,
             date: tripDate,
             startTime,
@@ -875,12 +878,17 @@ const getTrip = async (req, res, next) => {
             totalSeats: bus.numberOfSeats || 60,
             availableSeats: bus.numberOfSeats || 60,
             seatBookings,
-        });
+        }).lean();
+
+        newTrip.busName = bus.busName;
+
+        const lockedSeats = await getLockedSeatsDetails(newTrip._id);
 
         return res.status(201).json({
             success: true,
             message: 'Trip created successfully',
             trip: newTrip,
+            reservedSeats: lockedSeats
         });
 
     } catch (err) {

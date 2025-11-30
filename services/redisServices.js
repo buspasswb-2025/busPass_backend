@@ -1,8 +1,11 @@
-import { lockLua, releaseLua } from "../utills/luaScript.js";
-import redis from '../config/redisConfig.js';
-
+// import { lockLua, releaseLua } from "../utills/luaScript.js";
+// import redis from '../config/redisConfig.js';
 
 // const lockSeats = async (tripId, seats, userId, idempotencyKey, ttl = 300) => {
+//   if (!Array.isArray(seats) || seats.length === 0) {
+//     throw new Error("Seats array cannot be empty");
+//   }
+
 //   const seatKeys = seats.map(seat => `trip:${tripId}:seat:${seat}`);
 
 //   const result = await redis.eval(
@@ -14,37 +17,35 @@ import redis from '../config/redisConfig.js';
 //     ttl
 //   );
 
-//   let status;
-//   let locked = [];
-//   let failed = [];
-
-//   if (!Array.isArray(result)) {
+//   if (!Array.isArray(result) || result.length === 0) {
 //     throw new Error("Unexpected Redis response format");
 //   }
 
-//   if (result[0] === "SUCCESS") {
-//     status = "SUCCESS";
-//     locked = result.slice(1, result.indexOf("|"));
-//   } else if (result[1] === "FAILED") {
-//     status = "FAILED";
-//     failed = result.slice(2);
-//   } else {
-//     throw new Error(`Unexpected Lua result: ${JSON.stringify(result)}`);
-//   }
+//   const status = result[0];
+//   const keys = result.slice(1);
+
+//   const locked = status === "SUCCESS"
+//     ? keys.map(key => parseInt(key.split(":").pop()))
+//     : [];
+
+//   const failed = status === "FAILED"
+//     ? keys.map(key => parseInt(key.split(":").pop()))
+//     : [];
 
 //   return {
 //     status,
-//     locked: locked.map(key => parseInt(key.split(":").pop())),
-//     failed: failed.map(key => parseInt(key.split(":").pop())),
+//     locked,
+//     failed,
 //     reason:
 //       status === "FAILED"
-//         ? `Seats ${failed.map(key => key.split(":").pop()).join(", ")} already locked`
+//         ? `Seats ${failed.join(", ")} already locked`
 //         : null,
 //   };
 // };
 
+// const releaseSeats = async (tripId, seats, userId, idempotencyKey) => {
+//   if (!redis) throw new Error("Redis client not initialized");
 
-// const releaseSeats = async ( tripId, seats, userId, idempotencyKey ) => {
 //   const seatKeys = seats.map(seat => `trip:${tripId}:seat:${seat}`);
 
 //   const result = await redis.eval(
@@ -55,36 +56,57 @@ import redis from '../config/redisConfig.js';
 //     idempotencyKey
 //   );
 
-//   const separatorIndex = result.indexOf("|");
-//   const status = result[0];
-//   const released = result.slice(1, separatorIndex);
-//   const failed = separatorIndex >= 0 ? result.slice(separatorIndex + 1) : [];
+//   if (!Array.isArray(result)) {
+//     throw new Error(`Unexpected Redis response: ${JSON.stringify(result)}`);
+//   }
 
-//   return {
-//     status,
-//     released: released.map(key => parseInt(key.split(":").pop())),
-//     failed: failed.map(key => parseInt(key.split(":").pop())),
-//     reason:
-//       failed.length > 0
-//         ? `Failed to release seats ${failed.map(k => k.split(":").pop()).join(", ")}`
-//         : null,
-//   };
+//   const status = result[0];
+//   const extractSeatNumber = key => Number(key.split(":").pop());
+
+//   if (status === "SUCCESS") {
+//     return {
+//       status,
+//       released: result.slice(1).map(extractSeatNumber),
+//       failed: [],
+//       reason: null,
+//     };
+//   } else if (status === "FAILED") {
+//     return {
+//       status,
+//       released: [],
+//       failed: result.slice(1).map(extractSeatNumber),
+//       reason: "One or more seats did not belong to this user. No seats released.",
+//     };
+//   } else {
+//     throw new Error(`Unexpected status from Redis: ${status}`);
+//   }
 // };
+
+
+
+// export { releaseSeats, lockSeats }
+
+
+import { lockLua, releaseLua } from "../utills/luaScript.js";
+import redis from '../config/redisConfig.js';
 
 const lockSeats = async (tripId, seats, userId, idempotencyKey, ttl = 300) => {
   if (!Array.isArray(seats) || seats.length === 0) {
     throw new Error("Seats array cannot be empty");
   }
 
-  const seatKeys = seats.map(seat => `trip:${tripId}:seat:${seat}`);
+  // Single booking key instead of per-seat keys
+  const bookingKey = `trip:${tripId}:booking:${userId}:${idempotencyKey}`;
+  const seatListKey = `trip:${tripId}:seats`;
 
   const result = await redis.eval(
     lockLua,
-    seatKeys.length,
-    ...seatKeys,
+    2, // Number of keys
+    bookingKey,
+    seatListKey,
     userId,
-    idempotencyKey,
-    ttl
+    ttl,
+    ...seats  // Pass seat numbers as remaining arguments
   );
 
   if (!Array.isArray(result) || result.length === 0) {
@@ -92,85 +114,31 @@ const lockSeats = async (tripId, seats, userId, idempotencyKey, ttl = 300) => {
   }
 
   const status = result[0];
-  const keys = result.slice(1);
-
-  const locked = status === "SUCCESS"
-    ? keys.map(key => parseInt(key.split(":").pop()))
-    : [];
-
-  const failed = status === "FAILED"
-    ? keys.map(key => parseInt(key.split(":").pop()))
-    : [];
+  const seatNumbers = result.slice(1).map(s => parseInt(s));
 
   return {
     status,
-    locked,
-    failed,
-    reason:
-      status === "FAILED"
-        ? `Seats ${failed.join(", ")} already locked`
-        : null,
+    locked: status === "SUCCESS" ? seatNumbers : [],
+    failed: status === "FAILED" ? seatNumbers : [],
+    bookingKey: status === "SUCCESS" ? bookingKey : null,
+    reason: status === "FAILED" 
+      ? `Seats ${seatNumbers.join(", ")} already locked`
+      : null,
   };
 };
 
-
-// const releaseSeats = async (tripId, seats, userId, idempotencyKey) => {
-//   const seatKeys = seats.map(seat => `trip:${tripId}:seat:${seat}`);
-
-//   const result = await redis.eval(
-//     releaseLua,
-//     seatKeys.length,
-//     ...seatKeys,
-//     userId,
-//     idempotencyKey
-//   );
-
-//   if (!Array.isArray(result)) {
-//     throw new Error("Unexpected Redis response format from releaseSeats");
-//   }
-
-//   let status;
-//   let released = [];
-//   let failed = [];
-
-//   if (result[0] === "SUCCESS") {
-//     status = "SUCCESS";
-//     released = result.slice(1, result.indexOf("|"));
-//   } else if (result[1] === "FAILED") {
-//     status = "FAILED";
-//     failed = result.slice(2);
-//   } else {
-//     throw new Error(`Unexpected Lua result: ${JSON.stringify(result)}`);
-//   }
-
-//   const extractSeatNumber = key => {
-//     const parts = key.split(":");
-//     return Number(parts[parts.length - 1]) || null;
-//   };
-
-//   return {
-//     status,
-//     released: released.map(extractSeatNumber).filter(Boolean),
-//     failed: failed.map(extractSeatNumber).filter(Boolean),
-//     reason:
-//       failed.length > 0
-//         ? `Failed to release seats ${failed.map(k => k.split(":").pop()).join(", ")}`
-//         : null,
-//   };
-// };
-
-
-const releaseSeats = async (tripId, seats, userId, idempotencyKey) => {
+const releaseSeats = async (tripId, userId, idempotencyKey) => {
   if (!redis) throw new Error("Redis client not initialized");
 
-  const seatKeys = seats.map(seat => `trip:${tripId}:seat:${seat}`);
+  const bookingKey = `trip:${tripId}:booking:${userId}:${idempotencyKey}`;
+  const seatListKey = `trip:${tripId}:seats`;
 
   const result = await redis.eval(
     releaseLua,
-    seatKeys.length,
-    ...seatKeys,
-    userId,
-    idempotencyKey
+    2,
+    bookingKey,
+    seatListKey,
+    userId
   );
 
   if (!Array.isArray(result)) {
@@ -178,27 +146,37 @@ const releaseSeats = async (tripId, seats, userId, idempotencyKey) => {
   }
 
   const status = result[0];
-  const extractSeatNumber = key => Number(key.split(":").pop());
 
   if (status === "SUCCESS") {
+    const releasedSeats = result.slice(1).map(s => parseInt(s));
     return {
       status,
-      released: result.slice(1).map(extractSeatNumber),
+      released: releasedSeats,
       failed: [],
       reason: null,
     };
-  } else if (status === "FAILED") {
+  } else {
     return {
       status,
       released: [],
-      failed: result.slice(1).map(extractSeatNumber),
-      reason: "One or more seats did not belong to this user. No seats released.",
+      failed: [],
+      reason: result[1] || "Release failed",
     };
-  } else {
-    throw new Error(`Unexpected status from Redis: ${status}`);
   }
 };
 
+const getLockedSeatsDetails = async (tripId) => {
+  try {
+    const seatListKey = `trip:${tripId}:seats`;
+    
+    // Get all locked seat numbers
+    const lockedSeatNumbers = (await redis.smembers(seatListKey)).map(Number);
+    console.log(lockedSeatNumbers);
+    
+    return lockedSeatNumbers;
+  }catch(err){
+    console.log('error in getting locked seats : ', err);
+  }
+}
 
-
-export { releaseSeats, lockSeats }
+export { releaseSeats, lockSeats, getLockedSeatsDetails };

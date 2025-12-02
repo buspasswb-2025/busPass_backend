@@ -14,6 +14,7 @@ import { getLockedSeatsDetails } from "../services/redisServices.js";
 
 const signup = async (req, res, next) => {
     const { email } = req.body;
+    let isExist = true;
     try {
         if (!email) {
             return next(new AppError("email is required", 400));
@@ -23,9 +24,10 @@ const signup = async (req, res, next) => {
 
         if (!user) {
             user = new User({ email: email });
+            isExist = false;
         }
 
-        const otp = generateOTP();
+        const otp = 2004; // generateOTP();
         const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
         console.log(otp);
@@ -43,10 +45,11 @@ const signup = async (req, res, next) => {
 
         await user.save();
 
-        const message = await generateOTPMessage(user.firstName, otp);
-        await sendEmail(email, message.subject, message.html);
+        // const message = await generateOTPMessage(user.firstName, otp);
+        // await sendEmail(email, message.subject, message.html);
 
-        res.status(201).json({
+        const statusCode = isExist ? 200 : 201;
+        res.status(statusCode).json({
             success: true,
             message: "otp is send to your email!",
         })
@@ -157,6 +160,8 @@ const verifyOTP = async (req, res, next) => {
             return next(new AppError("User is not exist!", 400));
         }
 
+        console.log(user.verificationOTP, "user given otp : ", otp);
+        
         if (user.verificationOTP !== otp) {
             return next(new AppError("Invalid OTP", 400));
         }
@@ -177,7 +182,7 @@ const verifyOTP = async (req, res, next) => {
         user.refreshToken = refreshToken;
         await user.save();
 
-        res.status(201).json({
+        res.status(200).json({
             success: true,
             message: "login successfull",
             data: {

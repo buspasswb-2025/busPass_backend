@@ -370,7 +370,7 @@ const verifyPayment = async (req, res, next) => {
 
         // Release Redis locks (best-effort)
         const seatKeys = seatNumbers.map(seat => `trip:${trip}:seat:${seat}`);
-        await releaseSeats(trip.toString(), seatNumbers, userId, idempotencyKey).catch(() => Promise.resolve());
+        await releaseSeats(trip.toString(), userId, idempotencyKey).catch(() => Promise.resolve());
 
         await session.commitTransaction();
         session.endSession();
@@ -379,6 +379,8 @@ const verifyPayment = async (req, res, next) => {
         const { firstName, lastName, email } = bookingDetails.bookedBy;
         const confirmationMessage = generateBookingConfirmationMessage(firstName + lastName, bookingDetails)
         await sendEmail(email, confirmationMessage.subject, confirmationMessage.html);
+
+        io.to(trip).emit('seat_booked', {bookingDetails, tripUpdate});
 
         return res.status(200).json({
             success: true,

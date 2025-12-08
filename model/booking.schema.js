@@ -118,7 +118,7 @@ const bookingSchema = new Schema({
   expireAt: {
     type: Date,
     default: () => new Date(Date.now() + 5 * 60 * 1000),
-    index: { expires: 0 }
+    // index: { expires: 0 }
   }
 }, {
   timestamps: true

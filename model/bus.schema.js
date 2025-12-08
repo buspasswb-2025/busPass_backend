@@ -90,5 +90,5 @@ const busSchema = new Schema({
     }
 })
 
-const Bus = model('bus', busSchema);
+const Bus = model('Bus', busSchema);
 export default Bus;

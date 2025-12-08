@@ -179,4 +179,21 @@ const getLockedSeatsDetails = async (tripId) => {
   }
 }
 
-export { releaseSeats, lockSeats, getLockedSeatsDetails };
+const isExistLockedTransaction = async (tripId, userId, idempotencyKey) => {
+  const bookingKey = `trip:${tripId}:booking:${userId}:${idempotencyKey}`;
+  
+  const bookingData = await redis.get(bookingKey);
+  if(!bookingData){
+    return {
+      isExistLocked: false
+    }
+  }
+  
+  const booking = JSON.parse(bookingData);
+  return {
+    isExistLocked: true,
+    booking
+  }
+}
+
+export { releaseSeats, lockSeats, getLockedSeatsDetails, isExistLockedTransaction };

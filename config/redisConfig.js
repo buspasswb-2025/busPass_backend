@@ -180,7 +180,7 @@ const handleBookingExpired = async (tripId, userId, idempotencyKey) => {
   try {
     console.log(`Processing booking expiration: trip=${tripId}, user=${userId}`);
 
-    const booking = await Booking.findOneAndDelete({
+    const booking = await Booking.findOne({
       trip: tripId,
       bookedBy: userId,
       idempotencyKey: idempotencyKey
@@ -200,7 +200,7 @@ const handleBookingExpired = async (tripId, userId, idempotencyKey) => {
       await redis.del(seatListKey);
     }
 
-    // asyncBookingHandle(tripId, userId, idempotencyKey);
+    asyncBookingHandle(tripId, userId, idempotencyKey);
 
     io.to(tripId).emit("seats_released", {
       seats: releasedSeats,
@@ -208,21 +208,21 @@ const handleBookingExpired = async (tripId, userId, idempotencyKey) => {
     });
 
   } catch (error) {
-    console.error(`Failed to handle booking expiration for trip ${tripId}:`, error);
+    console.error(`Failed to handle booking expiration for trip ${tripId}:, error`);
   }
 };
 
-// const asyncBookingHandle = async (tripId, userId, idempotencyKey) => {
-//   try {
-//     const bookingDetails = await Booking.findOneAndDelete({
-//       trip: tripId,
-//       bookedBy: userId,
-//       idempotencyKey: idempotencyKey
-//     })
-//   } catch (err) {
-//     console.log('error in cleaning booking details : ', err)
-//   }
-// }
+const asyncBookingHandle = async (tripId, userId, idempotencyKey) => {
+  try {
+    const bookingDetails = await Booking.findOneAndDelete({
+      trip: tripId,
+      bookedBy: userId,
+      idempotencyKey: idempotencyKey
+    })
+  } catch (err) {
+    console.log('error in cleaning booking details : ', err)
+  }
+}
 
 // Get the subscriber instance (useful for testing or external access)
 export const getSubscriber = () => subscriber;

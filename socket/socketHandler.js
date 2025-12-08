@@ -1,7 +1,6 @@
-const activeTrip = new Map();
 
 
-export const handleSocketConnection = async (io, socket) => {
+function sockethandler(io, socket) {
     socket.on("joinTrip", (tripId) => {
         socket.join(tripId);
         console.log(`User ${socket.id} joined trip ${tripId}`);
@@ -11,3 +10,6 @@ export const handleSocketConnection = async (io, socket) => {
         console.log("User disconnected:", socket.id);
     });
 }
+
+
+export default sockethandler;

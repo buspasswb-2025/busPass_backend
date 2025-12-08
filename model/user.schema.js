@@ -56,7 +56,7 @@ const userSchema = new Schema({
         type: Schema.Types.ObjectId,
         ref: 'Bus',
     },
-    verificationOTP: Number,
+    verificationOTP: String,
     VerificationOTPExpiry: Date,
     refreshToken: String,
 }, {

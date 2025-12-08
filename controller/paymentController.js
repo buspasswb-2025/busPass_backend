@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import Booking from "../model/booking.schema.js";
 import mongoose from "mongoose";
 import { getAgg, markSeatsAsReservedInMongo, rebuildRedisLocks } from "../utills/helpingdata.js";
-import { lockSeats, releaseSeats } from "../services/redisServices.js";
+import { isExistLockedTransaction, lockSeats, releaseSeats } from "../services/redisServices.js";
 import { seat_ttl } from "../utills/constVariables.js";
 import sendEmail from "../utills/sendEmail.js";
 import { generateBookingConfirmationMessage } from "../utills/helper.js";
@@ -13,133 +13,17 @@ import { io } from "../index.js";
 
 
 
-// const createOrderAndLockSeat = async (req, res, next) => {
-//     const session = await mongoose.startSession();
-//     session.startTransaction();
-//     try {
-//         const { userId, seats, amount, tripId } = req.body;
-//         console.log(req.body);
-
-//         if (!tripId || !userId || !seats || !amount) {
-//             return next(new AppError('Trip id, user id, seats and amount are required', 400));
-//         }
-
-//         const trip = await Trip.findById(tripId).session(session);
-//         if (!trip) {
-//             await session.abortTransaction();
-//             session.endSession();
-//             return next(new AppError('Trip not found', 404));
-//         }
-
-//         //  Check unavailable seats
-//         const unavailableSeats = trip.seatBookings.filter(
-//             seat => seats.includes(seat.seatNumber) && seat.isBooked !== 'available'
-//         );
-
-//         if (unavailableSeats.length > 0) {
-//             await session.abortTransaction();
-//             session.endSession();
-//             return res.status(400).json({
-//                 success: false,
-//                 message: 'Some seats are currently unavailable',
-//                 seatDetails: unavailableSeats
-//             });
-//         }
-
-//         const expire = new Date(Date.now() + 5 * 60 * 1000);
-
-//         //  Reserve existing seats atomically using arrayFilters
-//         await Trip.findOneAndUpdate(
-//             { _id: tripId },
-//             {
-//                 $set: {
-//                     'seatBookings.$[elem].isBooked': 'reserved',
-//                     'seatBookings.$[elem].bookedBy': userId,
-//                     'seatBookings.$[elem].expire': expire
-//                 }
-//             },
-//             {
-//                 arrayFilters: [
-//                     { 'elem.seatNumber': { $in: seats }, 'elem.isBooked': 'available' }
-//                 ],
-//                 session,
-//                 new: true
-//             }
-//         );
-
-//         // Creating the razorpay order
-//         const options = {
-//             amount: Math.round(amount * 100),
-//             currency: "INR",
-//             receipt: `receipt_${Date.now()}`,
-//             payment_capture: 1,
-//             notes: {
-//                 tripId: tripId,
-//                 userId: userId,
-//                 seats: seats.join(','),
-//             }
-//         };
-
-//         const order = await razorpayInstance.orders.create(options);
-
-//         // Commit transaction
-//         await session.commitTransaction();
-//         session.endSession();
-
-//         res.status(200).json({
-//             success: true,
-//             message: 'Seats reserved successfully!',
-//             reservedSeats: seats,
-//             paymentDetails: {
-//                 orderId: order.id,
-//                 currency: order.currency,
-//                 amount: order.amount
-//             }
-//         });
-
-//     } catch (error) {
-//         // Rollback transaction on error
-//         await session.abortTransaction();
-//         session.endSession();
-//         return next(new AppError(error.message, 400));
-//     }
-// }
-
-// const verifyPayment = async (req, res, next) => {
-//     try {
-//         const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-
-//         const body = razorpay_order_id + "|" + razorpay_payment_id;
-
-//         const expectedSignature = crypto
-//             .createHmac("sha256", process.env.RAZORPAY_SECRET)
-//             .update(body.toString())
-//             .digest("hex");
-
-//         if (expectedSignature === razorpay_signature) {
-//             res.json({ success: true, message: "Payment verified successfully" });
-//         } else {
-//             return next(new AppError('payment verification failed', 400));
-//         }
-//     } catch (error) {
-//         return next(new AppError(error.message, 400));
-//     }
-// }
 
 const createOrderAndLockSeat = async (req, res, next) => {
-    // const userId = req.user?.id;
-    // if (!userId) return next(new AppError("Authentication required", 401));
+    const userId = req.user?.id;
+    if (!userId) return next(new AppError("Authentication required", 401));
 
-    const { tripId, seats, totalFare, from, to, idempotencyKey, userIdInBody } = req.body;
+    const { tripId, seats, totalFare, from, to, idempotencyKey } = req.body;
     from.stopId = new mongoose.Types.ObjectId(from._id);
     console.log("from stopId : ", from.stopId);
     delete from._id;
     to.stopId = new mongoose.Types.ObjectId(to._id);
     delete to._id;
-    console.log("new from : ",from);
-    console.log('new to : ', to);
-    const userId = new mongoose.Types.ObjectId(userIdInBody);
-    // console.log(tripId, seats, totalFare, from, to, idempotencyKey, userIdInBody);
 
     if (!tripId || !Array.isArray(seats) || seats.length === 0 || !totalFare || !from || !to || !idempotencyKey) {
         return next(new AppError("tripId, seats[], totalFare, from, to and idempotencyKey are required", 400));
@@ -167,17 +51,26 @@ const createOrderAndLockSeat = async (req, res, next) => {
             });
         }
 
-        const existingBooking = await Booking.findOne({ idempotencyKey, trip: tripId, bookedBy: userId }).session(session).lean();
-        if (existingBooking && existingBooking.expireAt.getTime() > Date.now()) {
-            await session.abortTransaction();
-            session.endSession();
-            return res.status(200).json({
-                success: true,
-                message: "Booking already exists for this idempotencyKey",
-                bookingId: existingBooking._id,
-                reservedSeats: existingBooking.seatNumbers,
-            });
+        // const existingBooking = await Booking.findOne({ idempotencyKey, trip: tripId, bookedBy: userId }).session(session).lean();
+        // if (existingBooking && existingBooking.expireAt.getTime() > Date.now()) {
+        //     await session.abortTransaction();
+        //     session.endSession();
+        //     return res.status(200).json({
+        //         success: true,
+        //         message: "Booking already exists for this idempotencyKey",
+        //         bookingId: existingBooking._id,
+        //         reservedSeats: existingBooking.seatNumbers,
+        //     });
+        // }
+
+        const isPresent = await isExistLockedTransaction(tripId, userId, idempotencyKey);
+        if (isPresent.isExistLocked) {
+            const releaseResult = await releaseSeats(tripId, userId, idempotencyKey);
+            if (!releaseResult.status === "SUCCESS") {
+                return res.status(400).json(releaseResult);
+            }
         }
+        console.log(isPresent);
 
         // const { locked, failed } = await lockSeats(tripId, seats, userId, 300);
 
@@ -212,28 +105,80 @@ const createOrderAndLockSeat = async (req, res, next) => {
 
         const holdMinutes = Number(process.env.SEAT_HOLD_MINUTES || 5);
         const expireAt = new Date(Date.now() + holdMinutes * 60 * 1000);
+        // let newBooking;
+        // if (!isPresent.isExistLocked) {
+        //     [newBooking] = await Booking.create(
+        //         [{
+        //             trip: new mongoose.Types.ObjectId(tripId),
+        //             bookedBy: new mongoose.Types.ObjectId(userId),
+        //             seatNumbers: seats,
+        //             // from: {
+        //             //     stopId: new mongoose.Types.ObjectId(from)
+        //             // },
+        //             // to: {
+        //             //     stopId: new mongoose.Types.ObjectId(to)
+        //             // },
+        //             from,
+        //             to,
+        //             farePerSeat: totalFare / seats.length,
+        //             totalFare,
+        //             paymentStatus: "pending",
+        //             idempotencyKey,
+        //             expireAt
+        //         }],
+        //         { session }
+        //     );
+        // } else {
+        //     newBooking = await Booking.findOneAndUpdate(
+        //         { tripId, userId, idempotencyKey },      
+        //         { $set: { expireAt: expireAt, seatNumbers: seats}, farePerSeat: totalFare / seats.length, totalFare},     
+        //         { new: true }                            
+        //     ).lean();
+        //     console.log("new booking : ",newBooking)
+        // }
 
-        const [newBooking] = await Booking.create(
-            [{
-                trip: new mongoose.Types.ObjectId(tripId),
-                bookedBy: new mongoose.Types.ObjectId(userId),
-                seatNumbers: seats,
-                // from: {
-                //     stopId: new mongoose.Types.ObjectId(from)
-                // },
-                // to: {
-                //     stopId: new mongoose.Types.ObjectId(to)
-                // },
-                from,
-                to,
-                farePerSeat: totalFare / seats.length,
-                totalFare,
-                paymentStatus: "pending",
-                idempotencyKey,
-                expireAt
-            }],
-            { session }
-        );
+        let newBooking;
+
+        if (!isPresent.isExistLocked) {
+            console.log("new book 1");
+            [newBooking] = await Booking.create(
+                [{
+                    trip: new mongoose.Types.ObjectId(tripId),
+                    bookedBy: new mongoose.Types.ObjectId(userId),
+                    seatNumbers: seats,
+                    from,
+                    to,
+                    farePerSeat: totalFare / seats.length,
+                    totalFare,
+                    paymentStatus: "pending",
+                    idempotencyKey,
+                    expireAt
+                }],
+                { session }
+            );
+        } else {
+            newBooking = await Booking.findOneAndUpdate(
+                {
+                    trip: new mongoose.Types.ObjectId(tripId),
+                    bookedBy: new mongoose.Types.ObjectId(userId),
+                    idempotencyKey
+                },
+                {
+                    $set: {
+                        expireAt,
+                        seatNumbers: seats,
+                        farePerSeat: totalFare / seats.length,
+                        totalFare
+                    }
+                },
+                {
+                    new: true,
+                    session
+                }
+            );
+
+            console.log("new booking:", newBooking);
+        }
 
         let razorpayOrder;
         try {
@@ -254,7 +199,7 @@ const createOrderAndLockSeat = async (req, res, next) => {
         await session.commitTransaction();
         session.endSession();
 
-        io.to(tripId).emit('seat_reserved',{seatNumbers: seats, tripId: tripId})
+        io.to(tripId).emit('seat_reserved', { seatNumbers: seats, tripId: tripId, userId: userId })
 
         return res.status(200).json({
             success: true,
@@ -286,127 +231,122 @@ const verifyPayment = async (req, res, next) => {
     const session = await mongoose.startSession();
     session.startTransaction();
 
-    const { bookingId } = req.body;
-
+    let bookingDetails;
     try {
-        const bookingDetails = await Booking.findById(bookingId).populate({ path: "bookedBy", select: "email firstName lastName" }).session(session);
+        const { bookingId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+        const userId = req.user?.id
+        if (!bookingId || !razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+            return next(new AppError("Missing required fields", 400));
+        }
+        if (!userId) return next(new AppError("Authentication required", 401));
+
+        bookingDetails = await Booking.findById(bookingId)
+            .populate({ path: "bookedBy", select: "email firstName lastName" })
+            .session(session);
+
         if (!bookingDetails) {
             await session.abortTransaction();
-            session.endSession();
             return next(new AppError("Booking not found", 404));
         }
 
         if (bookingDetails.paymentStatus === "completed") {
             await session.abortTransaction();
-            session.endSession();
-            return res.status(200).json({ success: true, message: "Booking already confirmed" });
+            return res.status(200).json({ success: true, message: "Already confirmed" });
         }
 
-        const userId = req.user?.id;
-        if (!userId) return next(new AppError("Authentication required", 401));
-
-        const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-        if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !bookingId) {
-            return next(new AppError("Missing required payment verification fields", 400));
-        }
-
-        const body = razorpay_order_id + "|" + razorpay_payment_id
-            .createHmac("sha256", process.env.RAZORPAY_SECRET)
-            .update(body.toString())
+        const body = razorpay_order_id + "|" + razorpay_payment_id;
         const expectedSignature = crypto
+            .createHmac("sha256", process.env.RAZORPAY_SECRET)
+            .update(body)
             .digest("hex");
 
         if (expectedSignature !== razorpay_signature) {
-            return next(new AppError("Payment verification failed: invalid signature", 400));
+            await releaseSeats(bookingDetails.trip.toString(), userId, bookingDetails.idempotencyKey)
+                .catch(() => Promise.resolve());
+
+            await session.abortTransaction();
+            return next(new AppError("Invalid payment signature", 400));
         }
 
-        // const bookingDetails = await Booking.findById(bookingId).session(session);
-        // if (!bookingDetails) {
-        //     await session.abortTransaction();
-        //     session.endSession();
-        //     return next(new AppError("Booking not found", 404));
-        // }
-
-
-        const { trip, seatNumbers, from, to, _id, idempotencyKey } = bookingDetails;
-
-        // Fetch payment details from Razorpay
         const paymentDetails = await razorpayInstance.payments.fetch(razorpay_payment_id);
 
-        // Update Trip → mark seats as booked (atomic array update)
-        const tripUpdate = await Trip.updateOne(
-            { _id: trip },
+        if (paymentDetails.amount !== bookingDetails.totalFare * 100) {
+
+
+            throw new Error("Payment amount mismatch!");
+        }
+
+        await Trip.updateOne(
+            { _id: bookingDetails.trip },
             {
                 $set: {
                     "seatBookings.$[elem].isBooked": "booked",
                     "seatBookings.$[elem].bookedBy": userId,
-                    "seatBookings.$[elem].pickupStop": from,
-                    "seatBookings.$[elem].dropStop": to,
-                    "seatBookings.$[elem].booking": _id.toString(),
-                    "seatBookings.$[elem].expire": null
+                    "seatBookings.$[elem].pickupStop": bookingDetails.from,
+                    "seatBookings.$[elem].dropStop": bookingDetails.to,
+                    "seatBookings.$[elem].booking": bookingDetails._id.toString(),
+                    "seatBookings.$[elem].expire": null,
                 }
             },
-            {
-                arrayFilters: [{ "elem.seatNumber": { $in: seatNumbers } }],
-                session,
-                new: true
-            }
+            { arrayFilters: [{ "elem.seatNumber": { $in: bookingDetails.seatNumbers } }], session }
         );
 
-        // Update booking status
         bookingDetails.paymentStatus = "completed";
-        bookingDetails.paymentDetails.paymentId = razorpay_payment_id;
-        bookingDetails.paymentDetails.razorpayOrderId = razorpay_order_id;
-        bookingDetails.paymentDetails.signature = razorpay_signature;
-        bookingDetails.paymentDetails.paymentMethod = {
-            method: paymentDetails.method,
-            card: paymentDetails.card || null,
-            bank: paymentDetails.bank || null,
-            wallet: paymentDetails.wallet || null,
-            vpa: paymentDetails.vpa || null,
+        bookingDetails.paymentDetails = {
+            ...bookingDetails.paymentDetails,
+            paymentId: razorpay_payment_id,
+            razorpayOrderId: razorpay_order_id,
+            signature: razorpay_signature,
+            paymentMethod: {
+                method: paymentDetails.method || null,
+                card: paymentDetails.card || undefined,
+                vpa: paymentDetails.vpa || undefined,
+                bank: paymentDetails.bank || undefined,
+                wallet: paymentDetails.wallet || undefined,
+            },
+            paidAt: new Date(paymentDetails.created_at * 1000)
         };
-        bookingDetails.paymentDetails.paidAt = new Date(paymentDetails.created_at * 1000);
         await bookingDetails.save({ session });
 
-        // Release Redis locks (best-effort)
-        const seatKeys = seatNumbers.map(seat => `trip:${trip}:seat:${seat}`);
-        await releaseSeats(trip.toString(), userId, idempotencyKey).catch(() => Promise.resolve());
+        await releaseSeats(bookingDetails.trip.toString(), userId, bookingDetails.idempotencyKey).catch(() => Promise.resolve());
 
         await session.commitTransaction();
-        session.endSession();
 
-        // confirmation mail sending to user
-        const { firstName, lastName, email } = bookingDetails.bookedBy;
-        const confirmationMessage = generateBookingConfirmationMessage(firstName + lastName, bookingDetails)
-        await sendEmail(email, confirmationMessage.subject, confirmationMessage.html);
+        const { email, firstName, lastName } = bookingDetails.bookedBy;
+        const msg = generateBookingConfirmationMessage(firstName + lastName, bookingDetails);
+        await sendEmail(email, msg.subject, msg.html);
 
-        io.to(trip).emit('seat_booked', {bookingDetails, tripUpdate});
+        io.to(bookingDetails.trip).emit('seatBooked', { seatNumbers: bookingDetails.seatNumbers, tripId: bookingDetails.trip, userId: userId })
 
-        return res.status(200).json({
+        return res.json({
             success: true,
-            message: "Payment verified & seats booked successfully",
-            bookingId: bookingDetails._id,
-            seats: bookingDetails.seatNumbers,
-            tripUpdate
+            message: "Payment verified & booking confirmed",
+            bookingId,
+            seats: bookingDetails.seatNumbers
         });
-    } catch (err) {
-        try {
-            await session.abortTransaction();
-        } catch { }
-        session.endSession();
 
-        if (req.body.seatNumbers && req.body.tripId && req.user?.id) {
-            await releaseSeats(bookingDetails.trip, bookingDetails.seatNumbers, req.user.id, bookingDetails.idempotencyKey).catch(() => Promise.resolve());
+    } catch (err) {
+        await session.abortTransaction();
+        console.error(err.message);
+
+        if (bookingDetails) {
+            await releaseSeats(
+                bookingDetails.trip,
+                bookingDetails.seatNumbers,
+                bookingDetails.bookedBy?._id,
+                bookingDetails.idempotencyKey
+            ).catch(() => Promise.resolve());
         }
 
         return next(new AppError(err.message || "Payment verification failed", 500));
+    } finally {
+        session.endSession();
     }
 };
 
 const releaseLockedSeats = async (req, res, next) => {
-    const { bookingId, tripId, idempotencyKey, seatNumbers, userIdInBody } = req.body;
-    // const userId = req.user?.id;
-    const userId = new mongoose.Types.ObjectId(userIdInBody);
+    const { bookingId, tripId, idempotencyKey, seatNumbers } = req.body;
+    const userId = req.user?.id;
 
     try {
         if (!bookingId && (!userId || !tripId || !idempotencyKey || !seatNumbers)) {

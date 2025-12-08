@@ -10,6 +10,8 @@ import Trip from "../model/trip.schema.js";
 import { BusAheadTime, standardTimeOptions } from "../utills/constVariables.js";
 import mongoose from "mongoose";
 import { getLockedSeatsDetails } from "../services/redisServices.js";
+import Booking from "../model/booking.schema.js";
+import { paginate } from "../utills/modelHelper.js";
 
 
 const signup = async (req, res, next) => {
@@ -161,7 +163,7 @@ const verifyOTP = async (req, res, next) => {
         }
 
         console.log(user.verificationOTP, "user given otp : ", otp);
-        
+
         if (user.verificationOTP !== otp) {
             return next(new AppError("Invalid OTP", 400));
         }
@@ -195,7 +197,6 @@ const verifyOTP = async (req, res, next) => {
         return next(new AppError(error.message, 400));
     }
 }
-
 const resendOTP = async (req, res, next) => {
     const { email } = req.body;
 
@@ -360,84 +361,7 @@ const getAllStops = async (req, res, next) => {
 };
 
 
-const oldSearch = async (req, res, next) => {
-    try {
-        const { datetime, from, to, distance, persons } = req.body;
 
-        console.log(datetime)
-        // const inputDateTime = new Date(datetime);
-        // const inputDateTime = new Date(datetime);
-        // console.log("get time : ",inputDateTime.getTime());
-        // const now = new Date();
-        // const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        // console.log(today);
-        // const inputDay = new Date(inputDateTime.getFullYear(), inputDateTime.getMonth(), inputDateTime.getDate());
-        // console.log(inputDay)
-
-        const nowTime = new Date(Date.now());
-        const year = nowTime.getFullYear();
-        const month = nowTime.getMonth();
-        const day = nowTime.getDate();
-
-        if (inputDay < today) {
-            return next(new AppError('Invalid date', 400));
-        }
-
-        const farePerPerson = calculateFare(distance);
-        const datePart = inputDateTime.toISOString().split('T')[0];
-
-        let buses;
-        if (inputDay > today) {
-            buses = await Bus.aggregate([
-                // { $match: { status: "active", isVerified: true } },
-                { $match: { "stops.name": { $all: [from, to] } } },
-                {
-                    $addFields: {
-                        fare: farePerPerson * persons
-                    }
-                }
-            ]);
-            return res.status(201).json({
-                success: true,
-                buses: buses
-            })
-        }
-
-        // const cutoff = new Date(inputDateTime.getTime() + 30 * 60 * 1000);
-        // const cutoff = new Date(inputDateTime.getTime() + 30 * 60 * 1000);
-        const cutoff = new Date(Date.now() + 30 * 60 * 1000);
-        const cutoffTimeIST = cutoff.toLocaleTimeString('en-GB', {
-            timeZone: 'Asia/Kolkata',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
-
-        buses = await Bus.aggregate([
-            // {$match: { status: "active", isVerified: true}},
-            { $match: { "stops.name": { $all: [from, to] } } },
-            {
-                $addFields: {
-                    // upStartDate: {
-                    //     $dateFromString: { dateString: { $concat: [datePart, " ", "$up.start.time"] } }
-                    // },
-                    // downStartDate: {
-                    //     $dateFromString: { dateString: { $concat: [datePart, " ", "$down.start.time"] } }
-                    // },
-                    fare: farePerPerson * persons
-                }
-            },
-            { $match: { $or: [{ upStartDate: { $gte: cutoffTimeIST } }, { downStartDate: { $gte: cutoffTimeIST } }] } }
-        ]);
-
-        return res.status(200).json({
-            success: true,
-            data: buses
-        })
-    } catch (err) {
-        return next(new AppError(err.message, 400));
-    }
-}
 
 const search = async (req, res, next) => {
 
@@ -700,115 +624,6 @@ const search = async (req, res, next) => {
             }
         ]);
 
-        // buses = await Bus.aggregate([
-        //     // Match buses that have both stops
-        //     {
-        //         $match: { "stops.stopId": { $all: [from, to] } }
-        //     },
-
-        //     // Lookup to populate stop details
-        //     {
-        //         $lookup: {
-        //             from: "busstoplists",
-        //             localField: "stops.stopId",
-        //             foreignField: "_id",
-        //             as: "stopDetails"
-        //         }
-        //     },
-
-        //     // Replace stops with full details
-        //     {
-        //         $addFields: {
-        //             stops: {
-        //                 $map: {
-        //                     input: "$stops",
-        //                     as: "s",
-        //                     in: {
-        //                         $mergeObjects: [
-        //                             "$$s",
-        //                             {
-        //                                 $arrayElemAt: [
-        //                                     {
-        //                                         $filter: {
-        //                                             input: "$stopDetails",
-        //                                             as: "sd",
-        //                                             cond: { $eq: ["$$sd._id", "$$s.stopId"] }
-        //                                         }
-        //                                     },
-        //                                     0
-        //                                 ]
-        //                             }
-        //                         ]
-        //                     }
-        //                 }
-        //             }
-        //         }
-        //     },
-
-        //     // Remove temporary stopDetails array
-        //     { $project: { stopDetails: 0 } },
-
-        //     // Compute fromIndex and toIndex
-        //     {
-        //         $addFields: {
-        //             fromIndex: { $indexOfArray: ["$stops.stopId", from] },
-        //             toIndex: { $indexOfArray: ["$stops.stopId", to] }
-        //         }
-        //     },
-
-        //     // Create directions array
-        //     {
-        //         $addFields: {
-        //             directions: [
-        //                 {
-        //                     type: "up",
-        //                     startTime: "$up.startTime.timeInMin",
-        //                     endTime: "$up.endTime.timeInMin",
-        //                     valid: { $lt: ["$fromIndex", "$toIndex"] }
-        //                 },
-        //                 {
-        //                     type: "down",
-        //                     startTime: "$down.startTime.timeInMin",
-        //                     endTime: "$down.endTime.timeInMin",
-        //                     valid: { $gt: ["$fromIndex", "$toIndex"] }
-        //                 }
-        //             ]
-        //         }
-        //     },
-
-        //     // Unwind directions
-        //     { $unwind: "$directions" },
-
-        //     // Filter valid directions & after current time
-        //     {
-        //         $match: {
-        //             "directions.valid": true,
-        //             $expr: { $gt: ["$directions.startTime", minutes] }
-        //         }
-        //     },
-
-        //     // Sort by startTime
-        //     { $sort: { "directions.startTime": 1 } },
-
-        //     // Merge directions into root
-        //     {
-        //         $replaceRoot: {
-        //             newRoot: {
-        //                 $mergeObjects: [
-        //                     "$$ROOT",
-        //                     {
-        //                         direction: "$directions.type",
-        //                         startTime: "$directions.startTime",
-        //                         endTime: "$directions.endTime"
-        //                     }
-        //                 ]
-        //             }
-        //         }
-        //     },
-
-        //     // Remove the old directions array
-        //     { $project: { directions: 0 } }
-        // ]);
 
         console.log(buses);
     }
@@ -855,8 +670,9 @@ const getTrip = async (req, res, next) => {
             direction,
         }).lean();
 
-        const reservedSeats = await getLockedSeatsDetails(existingTrip._id);
+
         if (existingTrip) {
+            const reservedSeats = await getLockedSeatsDetails(existingTrip._id);
             existingTrip.busName = bus.busName;
             return res.status(200).json({
                 success: true,
@@ -883,8 +699,8 @@ const getTrip = async (req, res, next) => {
             totalSeats: bus.numberOfSeats || 60,
             availableSeats: bus.numberOfSeats || 60,
             seatBookings,
-        }).lean();
-
+        });
+        newTrip = newTrip.toObject();
         newTrip.busName = bus.busName;
 
         const lockedSeats = await getLockedSeatsDetails(newTrip._id);
@@ -923,5 +739,144 @@ const deleteAccount = async (req, res, next) => {
 }
 
 
+const getRecentBooking = async (req, res, next) => {
+    const { userId } = req.user?.id;
 
-export { signup, verifyOTP, resendOTP, refreshAccessToken, logout, getProfile, search, getAllStops, updateProfile, getTrip, deleteAccount };
+    try {
+        const bookingDetails = await Booking.find({ bookedBy: userId, status: 'active' }).sort({ createdAt: -1 });
+
+        if (!bookingDetails) {
+            return next('recently you do not have any ticket', 404);
+        }
+
+        return res.status(200).json({
+            success: true,
+            recentlyBookingDetails: bookingDetails
+        })
+    } catch (err) {
+        return next(err.message, 400);
+    }
+}
+
+const bookingHistory = async (req, res, next) => {
+    const userId = req.user?.id;
+    try {
+        const { page, limit } = req;
+
+        const data = await paginate(
+            Booking,
+            { bookedBy: userId, status: { $in: ["completed", "cancelled"] } },
+            page,
+            limit,
+            { createdAt: -1 }
+        );
+
+        return res.status(200).json({
+            success: true,
+            ...data
+        });
+
+    } catch (error) {
+        console.log(error);
+        return next(error.message, 500);
+    }
+};
+
+const getTicketById = async (req, res, next) => {
+    const { ticketId } = req.params;
+
+    console.log("ticket id : ", ticketId);
+
+    try {
+        const [ticketDetails] = await Booking.aggregate([
+            {
+                $match: {
+                    _id: new mongoose.Types.ObjectId(ticketId)
+                }
+            },
+            {
+                $lookup: {
+                    from: "trips",
+                    let: { tripId: "$trip" },
+                    pipeline: [
+                        { $match: { $expr: { $eq: ["$_id", "$$tripId"] } } },
+                        { $project: { bus: 1, direction: 1, date: 1 } }
+                    ],
+                    as: "trip"
+                }
+            },
+            { $unwind: "$trip" },
+            {
+                $lookup: {
+                    from: "buses",
+                    let: { busId: "$trip.bus" },
+                    pipeline: [
+                        { $match: { $expr: { $eq: ["$_id", "$$busId"] } } },
+                        {
+                            $project: {
+                                busNumber: 1,
+                                busName: 1, phoneNumber: 1, up: 1, down: 1,
+                                firstStop: { $arrayElemAt: ["$stops", 0] },
+                                lastStop: { $arrayElemAt: ["$stops", -1] }
+                            }
+                        }
+                    ],
+                    as: "bus"
+                }
+            },
+            { $unwind: "$bus" },
+            {
+                $lookup: {
+                    from: "busstoplists",
+                    localField: "bus.firstStop.stopId",
+                    foreignField: "_id",
+                    as: "bus.firstStop.stopDetails"
+                }
+            },
+            {
+                $set: {
+                    "bus.firstStop.stopDetails": { $arrayElemAt: ["$bus.firstStop.stopDetails", 0] }
+                }
+            },
+            {
+                $lookup: {
+                    from: "busstoplists",
+                    localField: "bus.lastStop.stopId",
+                    foreignField: "_id",
+                    as: "bus.lastStop.stopDetails"
+                }
+            },
+            {
+                $set: {
+                    "bus.lastStop.stopDetails": { $arrayElemAt: ["$bus.lastStop.stopDetails", 0] }
+                }
+            },
+            {
+                $lookup: {
+                    from: "users",
+                    let: { userId: "$bookedBy" },
+                    pipeline: [
+                        { $match: { $expr: { $eq: ["$_id", "$$userId"] } } },
+                        { $project: { firstName: 1, lastName: 1 } }
+                    ],
+                    as: "bookedBy"
+                }
+            },
+            { $unwind: "$bookedBy" }
+        ]);
+
+
+
+        res.status(200).json({
+            ticketDetails: ticketDetails,
+        })
+    } catch (error) {
+        return next(new AppError(error.message, 400));
+    }
+}
+
+
+export {
+    signup, verifyOTP, resendOTP, refreshAccessToken, logout, getProfile,
+    search, getAllStops, updateProfile, getTrip, deleteAccount, getRecentBooking, bookingHistory, getTicketById
+};

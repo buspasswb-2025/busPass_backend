@@ -5,9 +5,9 @@ import {isLoggedIn} from '../middleware/AuthUser.js';
 
 const paymentRouter = express.Router();
 
-paymentRouter.post('/createOrder', createOrderAndLockSeat); //  isLoggedIn,
-paymentRouter.post('/verifyPayment', isLoggedIn, verifyPayment);
-paymentRouter.post('/releaseSeats', releaseLockedSeats); // isLoggedIn,
+paymentRouter.post('/createOrder',isLoggedIn, createOrderAndLockSeat); //  isLoggedIn,
+paymentRouter.post('/verifyPayment',isLoggedIn, verifyPayment);
+paymentRouter.post('/releaseSeats',isLoggedIn, releaseLockedSeats); // isLoggedIn,
 paymentRouter.post('/ticketCancellation', isLoggedIn, cancelledBooking);
 
 
